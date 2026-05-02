@@ -49,6 +49,48 @@ function parsePositiveInteger(value, fallback, minimum = 0) {
   return parsed;
 }
 
+function parseIntegerQueryValue(value) {
+  if (value === undefined) {
+    return {
+      hasValue: false,
+      isValid: true,
+      value: undefined,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      hasValue: true,
+      isValid: false,
+      value: undefined,
+    };
+  }
+
+  if (typeof value === 'string' && value.trim() === '') {
+    return {
+      hasValue: true,
+      isValid: false,
+      value: undefined,
+    };
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed)) {
+    return {
+      hasValue: true,
+      isValid: false,
+      value: undefined,
+    };
+  }
+
+  return {
+    hasValue: true,
+    isValid: true,
+    value: parsed,
+  };
+}
+
 function ensurePlainObject(value, field, errors) {
   if (value === undefined) {
     return undefined;
@@ -258,6 +300,29 @@ function validateStatusFilter(status) {
   return normalized;
 }
 
+function validateOrganizationListPagination(query) {
+  const errors = {};
+  const parsedLimit = parseIntegerQueryValue(query.limit);
+  const parsedOffset = parseIntegerQueryValue(query.offset);
+
+  if (parsedLimit.hasValue && (!parsedLimit.isValid || parsedLimit.value < 1)) {
+    errors.limit = ['must be an integer greater than or equal to 1'];
+  }
+
+  if (parsedOffset.hasValue && (!parsedOffset.isValid || parsedOffset.value < 0)) {
+    errors.offset = ['must be an integer greater than or equal to 0'];
+  }
+
+  if (Object.keys(errors).length > 0) {
+    throw validationError(errors);
+  }
+
+  return {
+    limit: parsedLimit.hasValue ? parsedLimit.value : 20,
+    offset: parsedOffset.hasValue ? parsedOffset.value : 0,
+  };
+}
+
 async function ensureCodeAvailable(code, excludeId, db) {
   const existing = await organizationRepository.findOrganizationByCode(code, { excludeId }, db);
 
@@ -437,9 +502,111 @@ function buildTree(organizations, rootIds = null) {
   return roots;
 }
 
+function normalizeCodeKey(code) {
+  return String(code || '').trim().toLowerCase();
+}
+
+function cloneMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') {
+    return {};
+  }
+
+  return JSON.parse(JSON.stringify(metadata));
+}
+
+function toClonedStatus(status) {
+  return status === 'archived' ? 'archived' : 'active';
+}
+
+function buildClonedCodeBase(sourceCode, sourceRootCode, clonedRootCode) {
+  const normalizedSourceCode = String(sourceCode || '').trim();
+  const normalizedSourceRootCode = String(sourceRootCode || '').trim();
+  const normalizedClonedRootCode = String(clonedRootCode || '').trim();
+
+  if (!normalizedSourceCode) {
+    return normalizedClonedRootCode;
+  }
+
+  if (
+    normalizedSourceRootCode
+    && normalizedSourceCode.toLowerCase().startsWith(normalizedSourceRootCode.toLowerCase())
+  ) {
+    const suffix = normalizedSourceCode.slice(normalizedSourceRootCode.length);
+
+    if (suffix) {
+      return `${normalizedClonedRootCode}${suffix}`;
+    }
+  }
+
+  return `${normalizedClonedRootCode}-${normalizedSourceCode}`;
+}
+
+async function reserveClonedOrganizationCode(baseCode, reservedCodes, db) {
+  let candidate = baseCode;
+  let counter = 2;
+
+  while (
+    reservedCodes.has(normalizeCodeKey(candidate))
+    || await organizationRepository.findOrganizationByCode(candidate, {}, db)
+  ) {
+    candidate = `${baseCode}-${counter}`;
+    counter += 1;
+  }
+
+  reservedCodes.add(normalizeCodeKey(candidate));
+  return candidate;
+}
+
+async function cloneOrganizationSubtree(source, input, db) {
+  const subtree = await organizationRepository.listSubtree(source.id, null, db);
+  const clonedIdsBySourceId = new Map();
+  const clonedDepthsBySourceId = new Map();
+  const reservedCodes = new Set([normalizeCodeKey(input.newCode)]);
+  let clonedRoot = null;
+
+  for (const organization of subtree) {
+    const isRoot = organization.id === source.id;
+    const clonedParentId = isRoot ? source.parentId : clonedIdsBySourceId.get(organization.parentId);
+    const parentDepth = isRoot ? source.depth - 1 : clonedDepthsBySourceId.get(organization.parentId);
+
+    if (!isRoot && !clonedParentId) {
+      throw new AppError(500, 'Failed to clone organization hierarchy.');
+    }
+
+    const clonedOrganization = await organizationRepository.createOrganization(
+      {
+        id: generateId('org'),
+        name: isRoot ? input.newName : organization.name,
+        code: isRoot
+          ? input.newCode
+          : await reserveClonedOrganizationCode(
+            buildClonedCodeBase(organization.code, source.code, input.newCode),
+            reservedCodes,
+            db,
+          ),
+        type: organization.type,
+        status: toClonedStatus(organization.status),
+        logo: organization.logo,
+        parentId: clonedParentId || null,
+        depth: parentDepth + 1,
+        metadata: cloneMetadata(organization.metadata),
+      },
+      db,
+    );
+
+    clonedIdsBySourceId.set(organization.id, clonedOrganization.id);
+    clonedDepthsBySourceId.set(organization.id, clonedOrganization.depth);
+
+    if (isRoot) {
+      clonedRoot = clonedOrganization;
+    }
+  }
+
+  return clonedRoot;
+}
+
 async function listOrganizations(query, user) {
-  const limit = parsePositiveInteger(query.limit, 20, 1);
-  const offset = parsePositiveInteger(query.offset, 0, 0);
+  const { limit, offset } = validateOrganizationListPagination(query);
   const status = validateStatusFilter(query.status);
   const search = normalizeString(query.search) || null;
   const parentId = normalizeString(query.parentId);
@@ -731,20 +898,8 @@ async function cloneOrganization(orgId, payload, user, req) {
     const { organization: source } = await ensureAccessibleOrganization(user, orgId, {}, db);
     await ensureCodeAvailable(input.newCode, null, db);
 
-    const clonedOrganization = await organizationRepository.createOrganization(
-      {
-        id: generateId('org'),
-        name: input.newName,
-        code: input.newCode,
-        type: source.type,
-        status: source.status === 'archived' ? 'archived' : 'active',
-        logo: source.logo,
-        parentId: source.parentId,
-        depth: source.depth,
-        metadata: source.metadata,
-      },
-      db,
-    );
+    const clonedOrganization = await cloneOrganizationSubtree(source, input, db);
+    const descendantIds = await organizationRepository.listDescendantIds(clonedOrganization.id, db);
 
     await auditService.logAction(
       {
@@ -759,6 +914,7 @@ async function cloneOrganization(orgId, payload, user, req) {
           includeRoles: input.includeRoles,
           includeNavConfig: input.includeNavConfig,
           includeUsers: input.includeUsers,
+          clonedDescendantCount: Math.max(descendantIds.length - 1, 0),
         },
       },
       db,

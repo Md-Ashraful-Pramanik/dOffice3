@@ -3,7 +3,29 @@ const auditService = require('../audits/audit.service');
 const organizationService = require('./organization.service');
 
 const listOrganizations = asyncHandler(async (req, res) => {
-  const result = await organizationService.listOrganizations(req.query, req.auth.user);
+  let result;
+
+  try {
+    result = await organizationService.listOrganizations(req.query, req.auth.user);
+  } catch (error) {
+    if (error && error.statusCode === 422) {
+      await auditService.logAction({
+        req,
+        userId: req.auth.user.id,
+        action: 'organizations.list_failed',
+        entityType: 'organization',
+        entityId: req.auth.user.orgId,
+        statusCode: 422,
+        metadata: {
+          limit: req.query.limit ?? null,
+          offset: req.query.offset ?? null,
+          errors: error.details || {},
+        },
+      });
+    }
+
+    throw error;
+  }
 
   await auditService.logAction({
     req,
