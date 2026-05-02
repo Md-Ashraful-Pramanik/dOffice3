@@ -25,6 +25,42 @@ async function initializeDatabase() {
   `);
 
   await query(`
+    CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'root',
+      status TEXT NOT NULL DEFAULT 'active',
+      logo TEXT,
+      parent_id TEXT REFERENCES organizations(id),
+      depth INTEGER NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      merged_into_org_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS organizations_code_lower_unique_idx
+    ON organizations ((LOWER(code)))
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS organizations_parent_id_idx
+    ON organizations (parent_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS organizations_status_idx
+    ON organizations (status)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique_idx
     ON users ((LOWER(email)))
     WHERE deleted_at IS NULL;
@@ -33,6 +69,12 @@ async function initializeDatabase() {
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique_idx
     ON users ((LOWER(username)))
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS users_org_id_idx
+    ON users (org_id)
     WHERE deleted_at IS NULL;
   `);
 

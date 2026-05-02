@@ -2,6 +2,7 @@ const express = require('express');
 const authRoutes = require('./auth.routes');
 const userRoutes = require('./user.routes');
 const auditRoutes = require('./audit.routes');
+const organizationRoutes = require('./organization.routes');
 const auditService = require('../modules/audits/audit.service');
 const asyncHandler = require('../utils/async-handler');
 
@@ -27,6 +28,7 @@ router.get(
 
 router.use('/api/v1/auth', authRoutes);
 router.use('/api/v1', userRoutes);
+router.use('/api/v1', organizationRoutes);
 router.use('/api/v1', auditRoutes);
 legacyRouter.use('/api', auditRoutes);
 
