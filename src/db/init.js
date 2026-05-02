@@ -330,6 +330,101 @@ async function initializeDatabase() {
     ON delegations (delegate_user_id)
     WHERE deleted_at IS NULL;
   `);
+
+  // Channel categories
+  await query(`
+    CREATE TABLE IF NOT EXISTS channel_categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      position INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS channel_categories_name_org_unique_idx
+    ON channel_categories (LOWER(name), org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS channel_categories_org_id_idx
+    ON channel_categories (org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Channels
+  await query(`
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'public',
+      description TEXT,
+      topic TEXT,
+      category_id TEXT REFERENCES channel_categories(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      e2ee BOOLEAN NOT NULL DEFAULT FALSE,
+      slow_mode_interval INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS channels_name_org_unique_idx
+    ON channels (LOWER(name), org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS channels_org_id_idx
+    ON channels (org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS channels_category_id_idx
+    ON channels (category_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Channel members
+  await query(`
+    CREATE TABLE IF NOT EXISTS channel_members (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES channels(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL DEFAULT 'member',
+      added_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS channel_members_unique_active_idx
+    ON channel_members (channel_id, user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS channel_members_channel_id_idx
+    ON channel_members (channel_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS channel_members_user_id_idx
+    ON channel_members (user_id)
+    WHERE deleted_at IS NULL;
+  `);
 }
 
 module.exports = {
