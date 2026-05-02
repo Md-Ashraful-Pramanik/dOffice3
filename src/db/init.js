@@ -425,6 +425,228 @@ async function initializeDatabase() {
     ON channel_members (user_id)
     WHERE deleted_at IS NULL;
   `);
+
+  // Conversations
+  await query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      name TEXT,
+      created_by_user_id TEXT REFERENCES users(id),
+      e2ee BOOLEAN NOT NULL DEFAULT FALSE,
+      disappearing_timer INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS conversations_type_idx
+    ON conversations (type)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Conversation participants
+  await query(`
+    CREATE TABLE IF NOT EXISTS conversation_participants (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS conversation_participants_unique_active_idx
+    ON conversation_participants (conversation_id, user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS conversation_participants_user_idx
+    ON conversation_participants (user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Messages
+  await query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      format TEXT NOT NULL DEFAULT 'plaintext',
+      sender_id TEXT NOT NULL REFERENCES users(id),
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      thread_parent_id TEXT REFERENCES messages(id),
+      reply_to TEXT REFERENCES messages(id),
+      attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      mentions TEXT[] NOT NULL DEFAULT '{}',
+      encryption JSONB NOT NULL DEFAULT '{}'::jsonb,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      pinned_at TIMESTAMPTZ,
+      pinned_by_user_id TEXT REFERENCES users(id),
+      edited BOOLEAN NOT NULL DEFAULT FALSE,
+      edited_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS messages_target_idx
+    ON messages (target_type, target_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS messages_thread_parent_idx
+    ON messages (thread_parent_id, created_at ASC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS messages_sender_idx
+    ON messages (sender_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS messages_pinned_idx
+    ON messages (target_id, pinned, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Message edits
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_edits (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      body TEXT NOT NULL,
+      edited_by_user_id TEXT NOT NULL REFERENCES users(id),
+      edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_edits_message_id_idx
+    ON message_edits (message_id, edited_at ASC);
+  `);
+
+  // Message reactions
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS message_reactions_unique_active_idx
+    ON message_reactions (message_id, user_id, emoji)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_reactions_message_idx
+    ON message_reactions (message_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Message bookmarks
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_bookmarks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS message_bookmarks_unique_active_idx
+    ON message_bookmarks (user_id, message_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_bookmarks_user_idx
+    ON message_bookmarks (user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Polls
+  await query(`
+    CREATE TABLE IF NOT EXISTS polls (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES channels(id),
+      message_id TEXT REFERENCES messages(id),
+      question TEXT NOT NULL,
+      multiple_choice BOOLEAN NOT NULL DEFAULT FALSE,
+      anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+      expires_at TIMESTAMPTZ,
+      created_by_user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS polls_channel_idx
+    ON polls (channel_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS poll_options (
+      id TEXT PRIMARY KEY,
+      poll_id TEXT NOT NULL REFERENCES polls(id),
+      option_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_options_unique_idx
+    ON poll_options (poll_id, option_index)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS poll_votes (
+      id TEXT PRIMARY KEY,
+      poll_id TEXT NOT NULL REFERENCES polls(id),
+      option_index INTEGER NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_unique_active_idx
+    ON poll_votes (poll_id, user_id, option_index)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS poll_votes_poll_idx
+    ON poll_votes (poll_id)
+    WHERE deleted_at IS NULL;
+  `);
 }
 
 module.exports = {
