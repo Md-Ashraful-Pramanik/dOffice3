@@ -1116,6 +1116,10 @@ async function createRelationship(orgId, payload, user, req) {
   ensureOrgAdmin(user);
   const input = validateRelationshipPayload(payload);
 
+  if (input.targetOrgId === orgId) {
+    throw validationError({ targetOrgId: ['must be different from orgId'] });
+  }
+
   return withTransaction(async (db) => {
     const { organization: source, accessibleIds } = await ensureAccessibleOrganization(user, orgId, {}, db);
     const target = await getOrganizationOrThrow(input.targetOrgId, db);

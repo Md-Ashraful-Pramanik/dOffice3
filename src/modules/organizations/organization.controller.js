@@ -186,12 +186,36 @@ const listRelationships = asyncHandler(async (req, res) => {
 });
 
 const createRelationship = asyncHandler(async (req, res) => {
-  const result = await organizationService.createRelationship(
-    req.params.orgId,
-    req.body,
-    req.auth.user,
-    req,
-  );
+  let result;
+
+  try {
+    result = await organizationService.createRelationship(
+      req.params.orgId,
+      req.body,
+      req.auth.user,
+      req,
+    );
+  } catch (error) {
+    if (error && error.statusCode) {
+      await auditService.logAction({
+        req,
+        userId: req.auth.user.id,
+        action: 'relationship.create_failed',
+        entityType: 'relationship',
+        entityId: req.params.orgId,
+        statusCode: error.statusCode,
+        metadata: {
+          orgId: req.params.orgId,
+          targetOrgId: req.body && req.body.relationship ? req.body.relationship.targetOrgId || null : null,
+          type: req.body && req.body.relationship ? req.body.relationship.type || null : null,
+          message: error.message,
+          details: error.details || {},
+        },
+      });
+    }
+
+    throw error;
+  }
 
   res.status(201).json(result);
 });
