@@ -58,6 +58,14 @@ function normalizeEmail(value) {
   return normalized ? normalized.toLowerCase() : undefined;
 }
 
+function isValidEmailFormat(value) {
+  if (!value) {
+    return false;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function ensurePlainObject(value, field, errors) {
   if (value === undefined) {
     return undefined;
@@ -250,6 +258,8 @@ function validateCreateUserPayload(payload) {
 
   if (!email) {
     errors.email = ["can't be blank"];
+  } else if (!isValidEmailFormat(email)) {
+    errors.email = ['is invalid'];
   }
 
   if (!password) {
@@ -998,6 +1008,14 @@ async function updateUserByAdmin(userId, payload, authUser, req) {
   return withTransaction(async (db) => {
     const targetUser = await getUserOrThrow(userId, db);
     await ensureAccessibleUser(authUser, targetUser, db);
+
+    if (
+      Object.prototype.hasOwnProperty.call(input, 'status')
+      && input.status === targetUser.status
+    ) {
+      throw validationError({ status: ['must be different from current status'] });
+    }
+
     const changes = { ...input };
     const updatedUser = await userRepository.updateUser(userId, changes, db);
 
