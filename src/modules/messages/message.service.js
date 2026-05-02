@@ -214,6 +214,84 @@ function isChannelMutedForNotifications(preferences, channelId) {
   return preferences.muteChannels.some((mutedChannelId) => String(mutedChannelId || '').trim() === normalizedChannelId);
 }
 
+function parseTimeOfDayToMinutes(value) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  const match = /^(\d{2}):(\d{2})$/.exec(trimmed);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  return (hour * 60) + minute;
+}
+
+function getCurrentMinutesInTimezone(timezone, now = new Date()) {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const parts = formatter.formatToParts(now);
+    const hourPart = parts.find((part) => part.type === 'hour');
+    const minutePart = parts.find((part) => part.type === 'minute');
+    if (!hourPart || !minutePart) return null;
+
+    const hour = Number(hourPart.value);
+    const minute = Number(minutePart.value);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+
+    return (hour * 60) + minute;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isMinuteWithinWindow(currentMinute, fromMinute, toMinute) {
+  if (fromMinute === toMinute) return true;
+  if (fromMinute < toMinute) {
+    return currentMinute >= fromMinute && currentMinute < toMinute;
+  }
+
+  return currentMinute >= fromMinute || currentMinute < toMinute;
+}
+
+function isDoNotDisturbActive(preferences, now = new Date()) {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
+    return false;
+  }
+
+  const dnd = preferences.doNotDisturb;
+  if (!dnd || typeof dnd !== 'object' || Array.isArray(dnd)) {
+    return false;
+  }
+
+  if (dnd.enabled !== true) {
+    return false;
+  }
+
+  const fromMinute = parseTimeOfDayToMinutes(dnd.from);
+  const toMinute = parseTimeOfDayToMinutes(dnd.to);
+  if (fromMinute == null || toMinute == null) {
+    return false;
+  }
+
+  const timezone = typeof dnd.timezone === 'string' && dnd.timezone.trim() ? dnd.timezone.trim() : 'UTC';
+  const currentMinute = getCurrentMinutesInTimezone(timezone, now);
+  if (currentMinute == null) {
+    return false;
+  }
+
+  return isMinuteWithinWindow(currentMinute, fromMinute, toMinute);
+}
+
 function buildMentionNotificationBody(messageBody) {
   const raw = String(messageBody || '').trim();
   if (!raw) return null;
@@ -254,6 +332,7 @@ async function createChannelMentionNotifications({
     const preferences = await notificationRepository.findNotificationPreferences(mentionedUserId);
     if (!shouldCreateInAppMentionNotification(preferences)) continue;
     if (isChannelMutedForNotifications(preferences, channel.id)) continue;
+    if (isDoNotDisturbActive(preferences)) continue;
 
     await notificationRepository.createNotification({
       id: generateId('notif'),
