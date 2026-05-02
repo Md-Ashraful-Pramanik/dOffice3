@@ -39,6 +39,30 @@ function mapNotification(row) {
   };
 }
 
+async function createNotification(input, db = { query }) {
+  const result = await db.query(
+    `INSERT INTO notifications (
+      id,
+      user_id,
+      type,
+      title,
+      body,
+      link
+    ) VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *`,
+    [
+      input.id,
+      input.userId,
+      input.type,
+      input.title,
+      input.body || null,
+      input.link || null,
+    ],
+  );
+
+  return mapNotification(result.rows[0]);
+}
+
 async function listNotifications(userId, { unread, type, limit, offset }, db = { query }) {
   const params = [userId];
   const filters = ['user_id = $1', 'deleted_at IS NULL'];
@@ -145,6 +169,7 @@ async function upsertNotificationPreferences(userId, preferences, db = { query }
 
 module.exports = {
   DEFAULT_PREFERENCES,
+  createNotification,
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,

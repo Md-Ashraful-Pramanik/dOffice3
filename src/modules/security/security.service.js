@@ -203,14 +203,17 @@ async function getUserKeyFingerprint(userId, auth, req) {
   const user = await userRepository.findActiveUserById(userId);
   if (!user) throw notFound();
 
-  const ownBundles = await securityRepository.listBundlesByUser(auth.user.id);
   const remoteBundles = await securityRepository.listBundlesByUser(userId);
 
-  if (ownBundles.length === 0 || remoteBundles.length === 0) {
+  if (remoteBundles.length === 0) {
     throw notFound();
   }
 
-  const fingerprint = buildSafetyFingerprint(ownBundles[0].identityKey, remoteBundles[0].identityKey);
+  const ownBundles = auth.user.id === userId ? remoteBundles : await securityRepository.listBundlesByUser(auth.user.id);
+
+  const fingerprint = ownBundles.length > 0
+    ? buildSafetyFingerprint(ownBundles[0].identityKey, remoteBundles[0].identityKey)
+    : buildFingerprint(remoteBundles[0].identityKey);
 
   await auditService.logAction({
     req,

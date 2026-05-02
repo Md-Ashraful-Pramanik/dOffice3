@@ -488,14 +488,15 @@ const searchMessages = asyncHandler(async (req, res) => {
 });
 
 const reportMessage = asyncHandler(async (req, res) => {
+  let result;
   try {
-    await messageService.reportMessage(req.params.messageId, req.body, req.auth.user, req);
+    result = await messageService.reportMessage(req.params.messageId, req.body, req.auth.user, req);
   } catch (error) {
     await logFailure(req, 'messages.report_failed', 'message', req.params.messageId, error);
     throw error;
   }
 
-  res.status(201).end();
+  res.status(201).json(result);
 });
 
 const listModerationReports = asyncHandler(async (req, res) => {

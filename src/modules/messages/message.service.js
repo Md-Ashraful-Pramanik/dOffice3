@@ -3,6 +3,7 @@ const { generateId } = require('../../utils/id');
 const auditService = require('../audits/audit.service');
 const messageRepository = require('./message.repository');
 const organizationRepository = require('../organizations/organization.repository');
+const notificationRepository = require('../notifications/notification.repository');
 const userRepository = require('../users/user.repository');
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
@@ -177,6 +178,74 @@ function validateMessagePayload(body) {
     replyTo: data.replyTo || null,
     encryption: data.encryption && typeof data.encryption === 'object' ? data.encryption : {},
   };
+}
+
+function shouldCreateInAppMentionNotification(preferences) {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
+    return true;
+  }
+
+  const inApp = preferences.inApp;
+  if (!inApp || typeof inApp !== 'object' || Array.isArray(inApp)) {
+    return true;
+  }
+
+  if (inApp.mentions === undefined) {
+    return true;
+  }
+
+  return inApp.mentions === true;
+}
+
+function buildMentionNotificationBody(messageBody) {
+  const raw = String(messageBody || '').trim();
+  if (!raw) return null;
+  return raw.length > 180 ? `${raw.slice(0, 177)}...` : raw;
+}
+
+async function createChannelMentionNotifications({
+  channel,
+  messageId,
+  messageBody,
+  sender,
+  mentionedUserIds,
+}) {
+  if (!Array.isArray(mentionedUserIds) || mentionedUserIds.length === 0) return;
+
+  const normalizedMentioned = [...new Set(
+    mentionedUserIds
+      .filter((id) => typeof id === 'string')
+      .map((id) => id.trim())
+      .filter((id) => id && id !== sender.id),
+  )];
+
+  if (normalizedMentioned.length === 0) return;
+
+  const senderName = sender.username || sender.name || sender.id;
+  const channelLabel = channel && channel.name ? `#${channel.name}` : 'a channel';
+
+  for (const mentionedUserId of normalizedMentioned) {
+    const mentionedUser = await userRepository.findActiveUserById(mentionedUserId);
+    if (!mentionedUser) continue;
+    if (channel && channel.org_id && mentionedUser.orgId !== channel.org_id) continue;
+
+    if (channel && channel.type === 'private') {
+      const membership = await messageRepository.findChannelMembership(channel.id, mentionedUserId);
+      if (!membership) continue;
+    }
+
+    const preferences = await notificationRepository.findNotificationPreferences(mentionedUserId);
+    if (!shouldCreateInAppMentionNotification(preferences)) continue;
+
+    await notificationRepository.createNotification({
+      id: generateId('notif'),
+      userId: mentionedUserId,
+      type: 'mention',
+      title: `${senderName} mentioned you in ${channelLabel}`,
+      body: buildMentionNotificationBody(messageBody),
+      link: `/channels/${channel.id}/messages/${messageId}`,
+    });
+  }
 }
 
 async function listConversations(query, user) {
@@ -428,7 +497,7 @@ async function listConversationMessages(conversationId, query, user) {
 }
 
 async function sendChannelMessage(channelId, body, user, req) {
-  await ensureChannelAccess(channelId, user);
+  const { channel } = await ensureChannelAccess(channelId, user);
   const payload = validateMessagePayload(body);
 
   const id = generateId('msg');
@@ -447,6 +516,14 @@ async function sendChannelMessage(channelId, body, user, req) {
   });
 
   const row = await messageRepository.findMessageById(id);
+
+  await createChannelMentionNotifications({
+    channel,
+    messageId: id,
+    messageBody: payload.body,
+    sender: user,
+    mentionedUserIds: payload.mentions,
+  });
 
   await auditService.logAction({
     req,
@@ -620,6 +697,19 @@ async function postThreadReply(messageId, body, user, req) {
   });
 
   const row = await messageRepository.findMessageById(id);
+
+  if (parent.target_type === 'channel') {
+    const channel = await messageRepository.findChannelById(parent.target_id);
+    if (channel) {
+      await createChannelMentionNotifications({
+        channel,
+        messageId: id,
+        messageBody: payload.body,
+        sender: user,
+        mentionedUserIds: payload.mentions,
+      });
+    }
+  }
 
   await auditService.logAction({
     req,
