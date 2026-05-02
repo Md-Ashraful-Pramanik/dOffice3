@@ -36,7 +36,22 @@ const listChannels = asyncHandler(async (req, res) => {
 });
 
 const getChannel = asyncHandler(async (req, res) => {
-  const result = await channelService.getChannel(req.params.channelId, req.auth.user);
+  let result;
+  try {
+    result = await channelService.getChannel(req.params.channelId, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'channels.get_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'channels.viewed',
+    entityType: 'channel',
+    entityId: req.params.channelId,
+    statusCode: 200,
+    metadata: { channelId: req.params.channelId },
+  });
   res.status(200).json(result);
 });
 
@@ -100,7 +115,7 @@ const setMemberRole = asyncHandler(async (req, res) => {
 const listCategories = asyncHandler(async (req, res) => {
   let result;
   try {
-    result = await channelService.listCategories(req.params.orgId);
+    result = await channelService.listCategories(req.params.orgId, req.query);
   } catch (error) {
     await logFailure(req, 'channel_categories.list_failed', 'organization', req.params.orgId, error);
     throw error;

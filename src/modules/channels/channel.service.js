@@ -437,7 +437,8 @@ async function setMemberRole(channelId, targetUserId, body, user, req) {
 
 // ── channel categories ────────────────────────────────────────────────────────
 
-async function listCategories(orgId) {
+async function listCategories(orgId, rawQuery = {}) {
+  validatePaginationQuery(rawQuery);
   const categories = await channelRepository.listCategories(orgId);
   return { categories };
 }
