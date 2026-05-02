@@ -276,11 +276,16 @@ async function joinChannel(channelId, user, req) {
   const channel = await channelRepository.findChannelById(channelId);
   if (!channel) throw notFound();
 
-  if (channel.type !== 'public') {
+  const existing = await channelRepository.findMembership(channelId, user.id);
+
+  if (channel.type === 'private' && !existing) {
+    throw new AppError(403, 'Only users who are invited can join private channels.');
+  }
+
+  if (channel.type !== 'public' && channel.type !== 'private') {
     throw new AppError(403, 'Only public channels can be joined directly.');
   }
 
-  const existing = await channelRepository.findMembership(channelId, user.id);
   if (!existing) {
     await channelRepository.addMember({
       id: generateId('chm'),
@@ -554,6 +559,28 @@ async function reorderCategories(orgId, body, user, req) {
 
   const order = body && Array.isArray(body.order) ? body.order : null;
   if (!order) throw validationError({ order: 'order is required and must be an array.' });
+
+  if (order.some((id) => typeof id !== 'string' || !id.trim())) {
+    throw validationError({ order: 'order must contain valid category ids.' });
+  }
+
+  const existingCategories = await channelRepository.listCategories(orgId);
+  const existingIds = existingCategories.map((category) => category.id);
+
+  const uniqueOrderedIds = new Set(order);
+  if (uniqueOrderedIds.size !== order.length) {
+    throw validationError({ order: 'order must contain each category id exactly once.' });
+  }
+
+  if (order.length !== existingIds.length) {
+    throw validationError({ order: 'order must contain all categories in the organization.' });
+  }
+
+  const existingIdSet = new Set(existingIds);
+  const hasUnknownId = order.some((id) => !existingIdSet.has(id));
+  if (hasUnknownId) {
+    throw validationError({ order: 'order contains one or more invalid category ids.' });
+  }
 
   await channelRepository.reorderCategories(orgId, order);
 

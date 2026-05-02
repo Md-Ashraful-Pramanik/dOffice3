@@ -83,7 +83,13 @@ const deleteChannel = asyncHandler(async (req, res) => {
 });
 
 const joinChannel = asyncHandler(async (req, res) => {
-  const result = await channelService.joinChannel(req.params.channelId, req.auth.user, req);
+  let result;
+  try {
+    result = await channelService.joinChannel(req.params.channelId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel.join_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
   res.status(200).json(result);
 });
 
