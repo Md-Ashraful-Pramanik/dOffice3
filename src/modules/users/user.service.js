@@ -1116,6 +1116,23 @@ async function reactivateUser(userId, authUser, req) {
   return withTransaction(async (db) => {
     const targetUser = await getUserOrThrow(userId, db);
     await ensureAccessibleUser(authUser, targetUser, db);
+
+    if (targetUser.status === 'active') {
+      await auditService.logAction(
+        {
+          req,
+          userId: authUser.id,
+          action: 'users.reactivate_failed',
+          entityType: 'user',
+          entityId: userId,
+          statusCode: 422,
+          metadata: { reason: 'User is already active.' },
+        },
+        db,
+      );
+      throw validationError({ status: ['User is already active.'] });
+    }
+
     const updatedUser = await userRepository.updateUser(userId, { status: 'active' }, db);
 
     await auditService.logAction(
