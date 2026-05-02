@@ -25,6 +25,21 @@ async function initializeDatabase() {
   `);
 
   await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS location TEXT;
+  `);
+
+  await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS skills TEXT[] NOT NULL DEFAULT '{}';
+  `);
+
+  await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS manager_user_id TEXT REFERENCES users(id);
+  `);
+
+  await query(`
     CREATE TABLE IF NOT EXISTS organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -75,6 +90,30 @@ async function initializeDatabase() {
   await query(`
     CREATE INDEX IF NOT EXISTS users_org_id_idx
     ON users (org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_employee_id_lower_unique_idx
+    ON users ((LOWER(employee_id)))
+    WHERE deleted_at IS NULL AND employee_id IS NOT NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS users_status_idx
+    ON users (status)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS users_manager_user_id_idx
+    ON users (manager_user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS users_location_idx
+    ON users (location)
     WHERE deleted_at IS NULL;
   `);
 

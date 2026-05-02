@@ -30,6 +30,10 @@ async function authenticate(req, res, next) {
       throw new AppError(401, 'Missing or invalid authentication token.');
     }
 
+    if (user.status !== 'active') {
+      throw new AppError(403, 'User account is not active.');
+    }
+
     await authRepository.updateSessionActivity(session.id);
 
     req.token = token;
