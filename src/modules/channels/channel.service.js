@@ -1,11 +1,13 @@
 const { AppError, validationError } = require('../../utils/errors');
 const { generateId } = require('../../utils/id');
+const { query } = require('../../db/pool');
 const auditService = require('../audits/audit.service');
 const channelRepository = require('./channel.repository');
 
 const CHANNEL_TYPES = new Set(['public', 'private', 'announcement', 'cross-org']);
 const CHANNEL_MEMBER_ROLES = new Set(['admin', 'moderator', 'member']);
 const CHANNEL_UPDATE_FIELDS = new Set(['name', 'description', 'topic', 'categoryId', 'type']);
+const CHANNEL_INVITE_PERMISSION_ACTIONS = new Set(['moderate', 'invite', 'invite_user', 'invite_member']);
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
 const NOT_FOUND_MESSAGE = 'Resource not found.';
@@ -46,6 +48,57 @@ function validatePaginationQuery(query) {
   }
 
   if (Object.keys(errors).length > 0) throw validationError(errors);
+}
+
+function normalizePermission(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function hasInvitePermissionEntry(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  const moduleName = normalizePermission(entry.module);
+  const actionName = normalizePermission(entry.action);
+  return moduleName === 'messaging' && CHANNEL_INVITE_PERMISSION_ACTIONS.has(actionName) && entry.allow === true;
+}
+
+async function hasElevatedInvitePermission(userId, orgId) {
+  const rolePermissionsResult = await query(
+    `SELECT r.permissions
+     FROM user_role_assignments ura
+     JOIN roles r ON r.id = ura.role_id
+     WHERE ura.user_id = $1
+       AND ura.org_id = $2
+       AND ura.deleted_at IS NULL
+       AND r.deleted_at IS NULL`,
+    [userId, orgId],
+  );
+
+  for (const row of rolePermissionsResult.rows) {
+    const permissions = Array.isArray(row.permissions) ? row.permissions : [];
+    if (permissions.some(hasInvitePermissionEntry)) {
+      return true;
+    }
+  }
+
+  const teamOverridesResult = await query(
+    `SELECT t.permission_overrides
+     FROM team_members tm
+     JOIN teams t ON t.id = tm.team_id
+     WHERE tm.user_id = $1
+       AND tm.deleted_at IS NULL
+       AND t.org_id = $2
+       AND t.deleted_at IS NULL`,
+    [userId, orgId],
+  );
+
+  for (const row of teamOverridesResult.rows) {
+    const overrides = Array.isArray(row.permission_overrides) ? row.permission_overrides : [];
+    if (overrides.some(hasInvitePermissionEntry)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ── channels ──────────────────────────────────────────────────────────────────
@@ -341,6 +394,11 @@ async function inviteToChannel(channelId, body, user, req) {
 
   const membership = await channelRepository.findMembership(channelId, user.id);
   if (!membership && !isOrgAdmin(user)) throw forbidden();
+
+  if (!isOrgAdmin(user) && membership && membership.role !== 'admin' && channel.type === 'private') {
+    const canInviteToPrivate = await hasElevatedInvitePermission(user.id, channel.orgId);
+    if (!canInviteToPrivate) throw forbidden();
+  }
 
   const userIds = body && Array.isArray(body.userIds) ? body.userIds : null;
   if (!userIds || userIds.length === 0) throw validationError({ userIds: 'userIds is required.' });

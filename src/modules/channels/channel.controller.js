@@ -109,28 +109,64 @@ const leaveChannel = asyncHandler(async (req, res) => {
 });
 
 const inviteToChannel = asyncHandler(async (req, res) => {
-  const result = await channelService.inviteToChannel(req.params.channelId, req.body, req.auth.user, req);
+  let result;
+  try {
+    result = await channelService.inviteToChannel(req.params.channelId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel.invite_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
   res.status(200).json(result);
 });
 
 const removeMember = asyncHandler(async (req, res) => {
-  await channelService.removeMember(req.params.channelId, req.params.userId, req.auth.user, req);
+  try {
+    await channelService.removeMember(req.params.channelId, req.params.userId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel.member_remove_failed', 'channel', req.params.channelId, error, {
+      targetUserId: req.params.userId,
+    });
+    throw error;
+  }
   res.status(204).end();
 });
 
 const listMembers = asyncHandler(async (req, res) => {
-  const result = await channelService.listMembers(req.params.channelId, req.query, req.auth.user);
+  let result;
+  try {
+    result = await channelService.listMembers(req.params.channelId, req.query, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'channel.members_list_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'channel.members_listed',
+    entityType: 'channel',
+    entityId: req.params.channelId,
+    statusCode: 200,
+    metadata: { count: result.users.length, totalCount: result.totalCount },
+  });
   res.status(200).json(result);
 });
 
 const setMemberRole = asyncHandler(async (req, res) => {
-  const result = await channelService.setMemberRole(
-    req.params.channelId,
-    req.params.userId,
-    req.body,
-    req.auth.user,
-    req,
-  );
+  let result;
+  try {
+    result = await channelService.setMemberRole(
+      req.params.channelId,
+      req.params.userId,
+      req.body,
+      req.auth.user,
+      req,
+    );
+  } catch (error) {
+    await logFailure(req, 'channel.member_role_update_failed', 'channel', req.params.channelId, error, {
+      targetUserId: req.params.userId,
+    });
+    throw error;
+  }
   res.status(200).json(result);
 });
 
