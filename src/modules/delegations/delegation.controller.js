@@ -16,7 +16,22 @@ async function logFailure(req, action, entityType, entityId, error, metadata = {
 }
 
 const listDelegations = asyncHandler(async (req, res) => {
-  const result = await delegationService.listDelegations(req.params.userId, req.query, req.auth.user);
+  let result;
+  try {
+    result = await delegationService.listDelegations(req.params.userId, req.query, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'delegations.list_failed', 'user', req.params.userId, error);
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'delegations.listed',
+    entityType: 'user',
+    entityId: req.params.userId,
+    statusCode: 200,
+    metadata: { totalCount: result.totalCount },
+  });
   res.status(200).json(result);
 });
 

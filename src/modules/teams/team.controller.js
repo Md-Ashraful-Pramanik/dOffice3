@@ -16,12 +16,42 @@ async function logFailure(req, action, entityType, entityId, error, metadata = {
 }
 
 const listTeams = asyncHandler(async (req, res) => {
-  const result = await teamService.listTeams(req.params.orgId, req.query, req.auth.user);
+  let result;
+  try {
+    result = await teamService.listTeams(req.params.orgId, req.query, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'teams.list_failed', 'organization', req.params.orgId, error);
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'teams.listed',
+    entityType: 'organization',
+    entityId: req.params.orgId,
+    statusCode: 200,
+    metadata: { totalCount: result.totalCount },
+  });
   res.status(200).json(result);
 });
 
 const getTeam = asyncHandler(async (req, res) => {
-  const result = await teamService.getTeam(req.params.orgId, req.params.teamId, req.auth.user);
+  let result;
+  try {
+    result = await teamService.getTeam(req.params.orgId, req.params.teamId, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'teams.get_failed', 'team', req.params.teamId, error, { orgId: req.params.orgId });
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'teams.viewed',
+    entityType: 'team',
+    entityId: req.params.teamId,
+    statusCode: 200,
+    metadata: { orgId: req.params.orgId },
+  });
   res.status(200).json(result);
 });
 

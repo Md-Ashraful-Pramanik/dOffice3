@@ -16,7 +16,13 @@ async function logFailure(req, action, entityType, entityId, error, metadata = {
 }
 
 const listRoles = asyncHandler(async (req, res) => {
-  const result = await roleService.listRoles(req.params.orgId, req.query, req.auth.user);
+  let result;
+  try {
+    result = await roleService.listRoles(req.params.orgId, req.query, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'roles.list_failed', 'organization', req.params.orgId, error);
+    throw error;
+  }
   await auditService.logAction({
     req,
     userId: req.auth.user.id,
@@ -30,7 +36,13 @@ const listRoles = asyncHandler(async (req, res) => {
 });
 
 const getRole = asyncHandler(async (req, res) => {
-  const result = await roleService.getRole(req.params.orgId, req.params.roleId, req.auth.user);
+  let result;
+  try {
+    result = await roleService.getRole(req.params.orgId, req.params.roleId, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'roles.get_failed', 'role', req.params.roleId, error, { orgId: req.params.orgId });
+    throw error;
+  }
   await auditService.logAction({
     req,
     userId: req.auth.user.id,
