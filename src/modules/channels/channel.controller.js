@@ -78,7 +78,12 @@ const updateChannel = asyncHandler(async (req, res) => {
 });
 
 const deleteChannel = asyncHandler(async (req, res) => {
-  await channelService.deleteChannel(req.params.channelId, req.auth.user, req);
+  try {
+    await channelService.deleteChannel(req.params.channelId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channels.delete_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
   res.status(204).end();
 });
 
@@ -94,7 +99,12 @@ const joinChannel = asyncHandler(async (req, res) => {
 });
 
 const leaveChannel = asyncHandler(async (req, res) => {
-  await channelService.leaveChannel(req.params.channelId, req.auth.user, req);
+  try {
+    await channelService.leaveChannel(req.params.channelId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel.leave_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
   res.status(204).end();
 });
 
@@ -175,7 +185,14 @@ const updateCategory = asyncHandler(async (req, res) => {
 });
 
 const deleteCategory = asyncHandler(async (req, res) => {
-  await channelService.deleteCategory(req.params.orgId, req.params.categoryId, req.auth.user, req);
+  try {
+    await channelService.deleteCategory(req.params.orgId, req.params.categoryId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel_categories.delete_failed', 'channel_category', req.params.categoryId, error, {
+      orgId: req.params.orgId,
+    });
+    throw error;
+  }
   res.status(204).end();
 });
 

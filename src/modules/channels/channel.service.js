@@ -313,12 +313,14 @@ async function leaveChannel(channelId, user, req) {
   if (!channel) throw notFound();
 
   const membership = await channelRepository.findMembership(channelId, user.id);
-  if (!membership) throw new AppError(422, 'You are not a member of this channel.');
+  if (!membership) throw validationError({ membership: 'You are not a member of this channel.' });
 
   // Prevent last admin from leaving
   if (membership.role === 'admin') {
     const adminCount = await channelRepository.countAdmins(channelId);
-    if (adminCount <= 1) throw new AppError(422, 'Cannot leave: you are the last admin. Transfer admin role first.');
+    if (adminCount <= 1) {
+      throw validationError({ membership: 'Cannot leave: you are the last admin. Transfer admin role first.' });
+    }
   }
 
   await channelRepository.removeMember(channelId, user.id);
