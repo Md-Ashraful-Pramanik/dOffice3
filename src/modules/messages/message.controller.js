@@ -487,6 +487,63 @@ const searchMessages = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+const reportMessage = asyncHandler(async (req, res) => {
+  try {
+    await messageService.reportMessage(req.params.messageId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.report_failed', 'message', req.params.messageId, error);
+    throw error;
+  }
+
+  res.status(201).end();
+});
+
+const listModerationReports = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.listModerationReports(req.params.orgId, req.query, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'messages.reports_list_failed', 'organization', req.params.orgId, error);
+    throw error;
+  }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.reports_listed',
+    entityType: 'organization',
+    entityId: req.params.orgId,
+    statusCode: 200,
+    metadata: {
+      totalCount: result.totalCount,
+      limit: result.limit,
+      offset: result.offset,
+    },
+  });
+
+  res.status(200).json(result);
+});
+
+const resolveModerationReport = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.resolveModerationReport(
+      req.params.orgId,
+      req.params.reportId,
+      req.body,
+      req.auth.user,
+      req,
+    );
+  } catch (error) {
+    await logFailure(req, 'messages.report_resolve_failed', 'message_report', req.params.reportId, error, {
+      orgId: req.params.orgId,
+    });
+    throw error;
+  }
+
+  res.status(200).json(result);
+});
+
 module.exports = {
   listConversations,
   getConversation,
@@ -515,4 +572,7 @@ module.exports = {
   votePoll,
   getPoll,
   searchMessages,
+  reportMessage,
+  listModerationReports,
+  resolveModerationReport,
 };

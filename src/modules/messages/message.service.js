@@ -2,11 +2,16 @@ const { AppError, validationError } = require('../../utils/errors');
 const { generateId } = require('../../utils/id');
 const auditService = require('../audits/audit.service');
 const messageRepository = require('./message.repository');
+const organizationRepository = require('../organizations/organization.repository');
+const userRepository = require('../users/user.repository');
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
 const NOT_FOUND_MESSAGE = 'Resource not found.';
 const CONVERSATION_TYPES = new Set(['dm', 'group']);
 const MESSAGE_FORMATS = new Set(['plaintext', 'markdown', 'encrypted']);
+const REPORT_REASONS = new Set(['spam', 'harassment', 'inappropriate', 'other']);
+const REPORT_STATUSES = new Set(['pending', 'reviewed', 'dismissed']);
+const REPORT_ACTIONS = new Set(['dismiss', 'warn_user', 'delete_message', 'suspend_user']);
 
 function forbidden() {
   return new AppError(403, FORBIDDEN_MESSAGE);
@@ -81,6 +86,23 @@ async function ensureConversationParticipant(conversationId, userId) {
   const participant = await messageRepository.findConversationParticipant(conversationId, userId);
   if (!participant) throw forbidden();
   return participant;
+}
+
+async function ensureOrgModerationAccess(orgId, user) {
+  const org = await organizationRepository.findOrganizationById(orgId);
+  if (!org) throw notFound();
+
+  const normalizedRoles = (user.roleIds || []).map((roleId) => String(roleId || '').toLowerCase());
+  const hasModeratorRole = normalizedRoles.includes('moderator') || normalizedRoles.includes('role_moderator');
+
+  if (isSuperAdmin(user)) return org;
+  if (!isOrgAdmin(user) && !hasModeratorRole) throw forbidden();
+  if (!user.orgId) throw forbidden();
+
+  const scopedIds = await organizationRepository.listDescendantIds(user.orgId);
+  if (!scopedIds.includes(orgId)) throw forbidden();
+
+  return org;
 }
 
 async function ensureChannelAccess(channelId, user) {
@@ -957,6 +979,126 @@ async function searchMessages(query, user) {
   };
 }
 
+async function reportMessage(messageId, body, user, req) {
+  await ensureMessageAccess(messageId, user);
+
+  const reason = body && typeof body.reason === 'string' ? body.reason.trim().toLowerCase() : '';
+  const details = body && typeof body.details === 'string' ? body.details.trim() : null;
+
+  if (!REPORT_REASONS.has(reason)) {
+    throw validationError({ reason: 'reason must be one of: spam, harassment, inappropriate, other.' });
+  }
+
+  const orgId = await messageRepository.findOrgIdByMessageId(messageId);
+  if (!orgId) throw notFound();
+
+  const report = await messageRepository.createMessageReport({
+    id: generateId('rpt'),
+    messageId,
+    orgId,
+    reportedByUserId: user.id,
+    reason,
+    details,
+  });
+
+  await auditService.logAction({
+    req,
+    userId: user.id,
+    action: 'messages.reported',
+    entityType: 'message_report',
+    entityId: report.id,
+    statusCode: 201,
+    metadata: { messageId, reason },
+  });
+
+  return { report };
+}
+
+async function listModerationReports(orgId, rawQuery, user) {
+  await ensureOrgModerationAccess(orgId, user);
+
+  const errors = {};
+
+  const limit = parsePositiveInt(rawQuery.limit, 20, 1);
+  const offset = parsePositiveInt(rawQuery.offset, 0, 0);
+
+  if (rawQuery.limit !== undefined && (!Number.isInteger(Number(rawQuery.limit)) || Number(rawQuery.limit) < 1)) {
+    errors.limit = 'limit must be an integer greater than or equal to 1.';
+  }
+
+  if (rawQuery.offset !== undefined && (!Number.isInteger(Number(rawQuery.offset)) || Number(rawQuery.offset) < 0)) {
+    errors.offset = 'offset must be an integer greater than or equal to 0.';
+  }
+
+  const status = rawQuery.status ? String(rawQuery.status).trim().toLowerCase() : null;
+  if (status && !REPORT_STATUSES.has(status)) {
+    errors.status = 'status must be one of: pending, reviewed, dismissed.';
+  }
+
+  if (Object.keys(errors).length > 0) {
+    throw validationError(errors);
+  }
+
+  const result = await messageRepository.listMessageReports({
+    orgIds: [orgId],
+    status,
+    limit,
+    offset,
+  });
+
+  return {
+    reports: result.reports,
+    totalCount: result.totalCount,
+    limit,
+    offset,
+  };
+}
+
+async function resolveModerationReport(orgId, reportId, body, user, req) {
+  await ensureOrgModerationAccess(orgId, user);
+
+  const action = body && typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  const notes = body && typeof body.notes === 'string' ? body.notes.trim() : null;
+
+  if (!REPORT_ACTIONS.has(action)) {
+    throw validationError({ action: 'action must be one of: dismiss, warn_user, delete_message, suspend_user.' });
+  }
+
+  const report = await messageRepository.findReportById(reportId);
+  if (!report || report.status !== 'pending') throw notFound();
+  if (report.orgId && report.orgId !== orgId) throw forbidden();
+
+  if (action === 'delete_message') {
+    await messageRepository.softDeleteMessage(report.messageId);
+  }
+
+  if (action === 'suspend_user') {
+    const message = await messageRepository.findMessageById(report.messageId);
+    if (message) {
+      await userRepository.updateUser(message.sender_id, { status: 'suspended' });
+    }
+  }
+
+  const updated = await messageRepository.resolveMessageReport(reportId, {
+    status: action === 'dismiss' ? 'dismissed' : 'reviewed',
+    action,
+    notes,
+    resolvedByUserId: user.id,
+  });
+
+  await auditService.logAction({
+    req,
+    userId: user.id,
+    action: 'messages.report_resolved',
+    entityType: 'message_report',
+    entityId: reportId,
+    statusCode: 200,
+    metadata: { orgId, action },
+  });
+
+  return { report: updated };
+}
+
 module.exports = {
   listConversations,
   getConversation,
@@ -985,4 +1127,7 @@ module.exports = {
   votePoll,
   getPoll,
   searchMessages,
+  reportMessage,
+  listModerationReports,
+  resolveModerationReport,
 };

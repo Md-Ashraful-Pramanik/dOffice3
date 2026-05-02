@@ -647,6 +647,171 @@ async function initializeDatabase() {
     ON poll_votes (poll_id)
     WHERE deleted_at IS NULL;
   `);
+
+  // Message moderation reports
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_reports (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      reported_by_user_id TEXT NOT NULL REFERENCES users(id),
+      reason TEXT NOT NULL,
+      details TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      resolution_action TEXT,
+      resolution_notes TEXT,
+      resolved_by_user_id TEXT REFERENCES users(id),
+      resolved_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_reports_org_status_created_idx
+    ON message_reports (org_id, status, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_reports_message_id_idx
+    ON message_reports (message_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS message_reports_reported_by_idx
+    ON message_reports (reported_by_user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // File storage
+  await query(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size BIGINT NOT NULL,
+      content BYTEA NOT NULL,
+      uploaded_by_user_id TEXT NOT NULL REFERENCES users(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      context TEXT NOT NULL,
+      context_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS files_org_created_idx
+    ON files (org_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS files_uploaded_by_idx
+    ON files (uploaded_by_user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS files_context_idx
+    ON files (context, context_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // E2EE devices and keys
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_devices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      session_id TEXT REFERENCES sessions(id),
+      name TEXT NOT NULL,
+      identity_key_fingerprint TEXT,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS user_devices_session_unique_active_idx
+    ON user_devices (session_id)
+    WHERE deleted_at IS NULL AND session_id IS NOT NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS user_devices_user_last_seen_idx
+    ON user_devices (user_id, last_seen_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_key_bundles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      device_id TEXT NOT NULL REFERENCES user_devices(id),
+      identity_key TEXT NOT NULL,
+      signed_pre_key JSONB NOT NULL,
+      one_time_pre_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS user_key_bundles_user_device_unique_active_idx
+    ON user_key_bundles (user_id, device_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS user_key_bundles_user_created_idx
+    ON user_key_bundles (user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Notifications
+  await query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      link TEXT,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS notifications_user_created_idx
+    ON notifications (user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS notifications_user_read_idx
+    ON notifications (user_id, read_at)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      user_id TEXT PRIMARY KEY REFERENCES users(id),
+      preferences JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
 }
 
 module.exports = {

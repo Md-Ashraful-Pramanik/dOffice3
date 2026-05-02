@@ -62,6 +62,26 @@ function mapMessageRow(row, reactions = [], threadReplyCount = 0) {
   };
 }
 
+function mapReportRow(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    orgId: row.org_id,
+    reportedBy: row.reported_by_user_id,
+    reason: row.reason,
+    details: row.details,
+    status: row.status,
+    action: row.resolution_action,
+    notes: row.resolution_notes,
+    resolvedBy: row.resolved_by_user_id,
+    resolvedAt: row.resolved_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 async function findConversationById(conversationId, db = { query }) {
   const result = await db.query(
     `SELECT c.*
@@ -843,6 +863,121 @@ async function searchMessages(input, db = { query }) {
   return result.rows;
 }
 
+async function findOrgIdByMessageId(messageId, db = { query }) {
+  const result = await db.query(
+    `SELECT COALESCE(ch.org_id, su.org_id) AS org_id
+     FROM messages m
+     LEFT JOIN channels ch
+       ON ch.id = m.target_id
+      AND m.target_type = 'channel'
+      AND ch.deleted_at IS NULL
+     LEFT JOIN users su
+       ON su.id = m.sender_id
+      AND su.deleted_at IS NULL
+     WHERE m.id = $1
+       AND m.deleted_at IS NULL`,
+    [messageId],
+  );
+
+  return result.rows[0] ? result.rows[0].org_id : null;
+}
+
+async function createMessageReport(input, db = { query }) {
+  const result = await db.query(
+    `INSERT INTO message_reports (
+      id,
+      message_id,
+      org_id,
+      reported_by_user_id,
+      reason,
+      details,
+      status
+    ) VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+    RETURNING *`,
+    [
+      input.id,
+      input.messageId,
+      input.orgId,
+      input.reportedByUserId,
+      input.reason,
+      input.details || null,
+    ],
+  );
+
+  return mapReportRow(result.rows[0]);
+}
+
+async function listMessageReports({ orgIds, status, limit, offset }, db = { query }) {
+  const params = [orgIds];
+  const filters = ['deleted_at IS NULL', 'org_id = ANY($1)'];
+
+  if (status) {
+    params.push(status);
+    filters.push(`status = $${params.length}`);
+  }
+
+  const where = filters.join(' AND ');
+
+  const countResult = await db.query(
+    `SELECT COUNT(*)::INT AS total
+     FROM message_reports
+     WHERE ${where}`,
+    params,
+  );
+
+  params.push(limit, offset);
+  const listResult = await db.query(
+    `SELECT *
+     FROM message_reports
+     WHERE ${where}
+     ORDER BY created_at DESC
+     LIMIT $${params.length - 1}
+     OFFSET $${params.length}`,
+    params,
+  );
+
+  return {
+    reports: listResult.rows.map(mapReportRow),
+    totalCount: countResult.rows[0].total,
+  };
+}
+
+async function findReportById(reportId, db = { query }) {
+  const result = await db.query(
+    `SELECT *
+     FROM message_reports
+     WHERE id = $1
+       AND deleted_at IS NULL`,
+    [reportId],
+  );
+
+  return mapReportRow(result.rows[0]);
+}
+
+async function resolveMessageReport(reportId, input, db = { query }) {
+  const result = await db.query(
+    `UPDATE message_reports
+     SET status = $2,
+         resolution_action = $3,
+         resolution_notes = $4,
+         resolved_by_user_id = $5,
+         resolved_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND deleted_at IS NULL
+     RETURNING *`,
+    [
+      reportId,
+      input.status,
+      input.action,
+      input.notes || null,
+      input.resolvedByUserId,
+    ],
+  );
+
+  return mapReportRow(result.rows[0]);
+}
+
 module.exports = {
   mapMessageRow,
   findConversationById,
@@ -877,4 +1012,9 @@ module.exports = {
   findPollById,
   votePoll,
   searchMessages,
+  findOrgIdByMessageId,
+  createMessageReport,
+  listMessageReports,
+  findReportById,
+  resolveMessageReport,
 };

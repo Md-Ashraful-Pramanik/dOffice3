@@ -5,6 +5,17 @@ const messageController = require('../modules/messages/message.controller');
 const router = express.Router();
 
 router.get('/messages/search', authenticate, messageController.searchMessages);
+router.post('/messages/:messageId/report', authenticate, messageController.reportMessage);
+router.get(
+  '/organizations/:orgId/moderation/reports',
+  authenticate,
+  messageController.listModerationReports,
+);
+router.put(
+  '/organizations/:orgId/moderation/reports/:reportId',
+  authenticate,
+  messageController.resolveModerationReport,
+);
 
 router.get('/conversations', authenticate, messageController.listConversations);
 router.get('/conversations/:conversationId', authenticate, messageController.getConversation);

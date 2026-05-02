@@ -325,6 +325,33 @@ async function deleteChannel(channelId, user, req) {
   });
 }
 
+async function setSlowMode(channelId, body, user, req) {
+  const channel = await channelRepository.findChannelById(channelId);
+  if (!channel) throw notFound();
+
+  const membership = await channelRepository.findMembership(channelId, user.id);
+  if (!isOrgAdmin(user) && (!membership || membership.role !== 'admin')) throw forbidden();
+
+  const intervalSeconds = Number(body && body.intervalSeconds);
+  if (!Number.isInteger(intervalSeconds) || intervalSeconds < 0) {
+    throw validationError({ intervalSeconds: 'intervalSeconds must be an integer greater than or equal to 0.' });
+  }
+
+  const updated = await channelRepository.setChannelSlowMode(channelId, intervalSeconds);
+
+  await auditService.logAction({
+    req,
+    userId: user.id,
+    action: 'channel.slow_mode_updated',
+    entityType: 'channel',
+    entityId: channelId,
+    statusCode: 200,
+    metadata: { intervalSeconds },
+  });
+
+  return { channel: updated };
+}
+
 async function joinChannel(channelId, user, req) {
   const channel = await channelRepository.findChannelById(channelId);
   if (!channel) throw notFound();
@@ -683,6 +710,7 @@ module.exports = {
   getChannel,
   createChannel,
   updateChannel,
+  setSlowMode,
   deleteChannel,
   joinChannel,
   leaveChannel,

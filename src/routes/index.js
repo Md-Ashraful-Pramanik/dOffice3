@@ -6,6 +6,9 @@ const organizationRoutes = require('./organization.routes');
 const rolesTeamsDelegationsRoutes = require('./roles-teams-delegations.routes');
 const channelRoutes = require('./channel.routes');
 const messageRoutes = require('./message.routes');
+const fileRoutes = require('./file.routes');
+const securityRoutes = require('./security.routes');
+const notificationRoutes = require('./notification.routes');
 const auditService = require('../modules/audits/audit.service');
 const asyncHandler = require('../utils/async-handler');
 
@@ -36,6 +39,9 @@ router.use('/api/v1', auditRoutes);
 router.use('/api/v1', rolesTeamsDelegationsRoutes);
 router.use('/api/v1', channelRoutes);
 router.use('/api/v1', messageRoutes);
+router.use('/api/v1', fileRoutes);
+router.use('/api/v1', securityRoutes);
+router.use('/api/v1', notificationRoutes);
 legacyRouter.use('/api', auditRoutes);
 
 module.exports = {

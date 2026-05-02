@@ -60,6 +60,12 @@ router.put(
   channelController.updateChannel,
 );
 
+router.put(
+  '/channels/:channelId/slow-mode',
+  authenticate,
+  channelController.setSlowMode,
+);
+
 router.delete(
   '/channels/:channelId',
   authenticate,

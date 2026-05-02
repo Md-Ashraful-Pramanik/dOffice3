@@ -135,6 +135,7 @@ async function updateChannel(id, updates) {
     topic: 'topic',
     category_id: 'category_id',
     type: 'type',
+    slow_mode_interval: 'slow_mode_interval',
   };
 
   for (const [jsKey, dbCol] of Object.entries(fields)) {
@@ -162,6 +163,19 @@ async function softDeleteChannel(id) {
     `UPDATE channels SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
+}
+
+async function setChannelSlowMode(channelId, intervalSeconds) {
+  await query(
+    `UPDATE channels
+     SET slow_mode_interval = $2,
+         updated_at = NOW()
+     WHERE id = $1
+       AND deleted_at IS NULL`,
+    [channelId, intervalSeconds],
+  );
+
+  return findChannelById(channelId);
 }
 
 // ── channel members ───────────────────────────────────────────────────────────
@@ -360,6 +374,7 @@ module.exports = {
   listChannels,
   createChannel,
   updateChannel,
+  setChannelSlowMode,
   softDeleteChannel,
   findMembership,
   addMember,

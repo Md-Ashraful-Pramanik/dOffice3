@@ -77,6 +77,17 @@ const updateChannel = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+const setSlowMode = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await channelService.setSlowMode(req.params.channelId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel.slow_mode_update_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
+  res.status(200).json(result);
+});
+
 const deleteChannel = asyncHandler(async (req, res) => {
   try {
     await channelService.deleteChannel(req.params.channelId, req.auth.user, req);
@@ -250,6 +261,7 @@ module.exports = {
   getChannel,
   createChannel,
   updateChannel,
+  setSlowMode,
   deleteChannel,
   joinChannel,
   leaveChannel,
