@@ -197,6 +197,23 @@ function shouldCreateInAppMentionNotification(preferences) {
   return inApp.mentions === true;
 }
 
+function isChannelMutedForNotifications(preferences, channelId) {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
+    return false;
+  }
+
+  if (!Array.isArray(preferences.muteChannels)) {
+    return false;
+  }
+
+  const normalizedChannelId = String(channelId || '').trim();
+  if (!normalizedChannelId) {
+    return false;
+  }
+
+  return preferences.muteChannels.some((mutedChannelId) => String(mutedChannelId || '').trim() === normalizedChannelId);
+}
+
 function buildMentionNotificationBody(messageBody) {
   const raw = String(messageBody || '').trim();
   if (!raw) return null;
@@ -236,6 +253,7 @@ async function createChannelMentionNotifications({
 
     const preferences = await notificationRepository.findNotificationPreferences(mentionedUserId);
     if (!shouldCreateInAppMentionNotification(preferences)) continue;
+    if (isChannelMutedForNotifications(preferences, channel.id)) continue;
 
     await notificationRepository.createNotification({
       id: generateId('notif'),
