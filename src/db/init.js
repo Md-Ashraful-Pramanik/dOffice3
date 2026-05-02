@@ -194,6 +194,142 @@ async function initializeDatabase() {
     )
     WHERE deleted_at IS NULL;
   `);
+
+  // Roles
+  await query(`
+    CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL DEFAULT 'custom',
+      org_id TEXT REFERENCES organizations(id),
+      inherits_from TEXT REFERENCES roles(id),
+      permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS roles_name_org_unique_idx
+    ON roles (LOWER(name), COALESCE(org_id, ''))
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS roles_org_id_idx
+    ON roles (org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // User-role assignments
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_role_assignments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role_id TEXT NOT NULL REFERENCES roles(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      assigned_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS user_role_assignments_unique_active_idx
+    ON user_role_assignments (user_id, role_id, org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS user_role_assignments_user_id_idx
+    ON user_role_assignments (user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Teams
+  await query(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL DEFAULT 'static',
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      permission_overrides JSONB NOT NULL DEFAULT '[]'::jsonb,
+      dynamic_filter JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS teams_name_org_unique_idx
+    ON teams (LOWER(name), org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS teams_org_id_idx
+    ON teams (org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Team members
+  await query(`
+    CREATE TABLE IF NOT EXISTS team_members (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      added_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS team_members_unique_active_idx
+    ON team_members (team_id, user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS team_members_team_id_idx
+    ON team_members (team_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Delegations
+  await query(`
+    CREATE TABLE IF NOT EXISTS delegations (
+      id TEXT PRIMARY KEY,
+      delegator_user_id TEXT NOT NULL REFERENCES users(id),
+      delegate_user_id TEXT NOT NULL REFERENCES users(id),
+      start_date TIMESTAMPTZ NOT NULL,
+      end_date TIMESTAMPTZ NOT NULL,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS delegations_delegator_user_id_idx
+    ON delegations (delegator_user_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS delegations_delegate_user_id_idx
+    ON delegations (delegate_user_id)
+    WHERE deleted_at IS NULL;
+  `);
 }
 
 module.exports = {
