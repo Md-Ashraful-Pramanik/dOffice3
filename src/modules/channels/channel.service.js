@@ -403,17 +403,37 @@ async function inviteToChannel(channelId, body, user, req) {
   const userIds = body && Array.isArray(body.userIds) ? body.userIds : null;
   if (!userIds || userIds.length === 0) throw validationError({ userIds: 'userIds is required.' });
 
+  const normalizedUserIds = [];
   for (const uid of userIds) {
-    const existing = await channelRepository.findMembership(channelId, uid);
-    if (!existing) {
-      await channelRepository.addMember({
-        id: generateId('chm'),
-        channelId,
-        userId: uid,
-        role: 'member',
-        addedByUserId: user.id,
-      });
+    if (typeof uid !== 'string' || !uid.trim()) {
+      throw validationError({ userIds: 'userIds must contain valid user ids.' });
     }
+    normalizedUserIds.push(uid.trim());
+  }
+
+  const uniqueUserIds = [...new Set(normalizedUserIds)];
+  if (uniqueUserIds.length !== normalizedUserIds.length) {
+    throw validationError({ userIds: 'userIds must not contain duplicate values.' });
+  }
+
+  const alreadyMembers = [];
+  for (const uid of uniqueUserIds) {
+    const existing = await channelRepository.findMembership(channelId, uid);
+    if (existing) alreadyMembers.push(uid);
+  }
+
+  if (alreadyMembers.length > 0) {
+    throw validationError({ userIds: 'One or more users are already members of this channel.' });
+  }
+
+  for (const uid of uniqueUserIds) {
+    await channelRepository.addMember({
+      id: generateId('chm'),
+      channelId,
+      userId: uid,
+      role: 'member',
+      addedByUserId: user.id,
+    });
   }
 
   await auditService.logAction({
@@ -423,7 +443,7 @@ async function inviteToChannel(channelId, body, user, req) {
     entityType: 'channel',
     entityId: channelId,
     statusCode: 200,
-    metadata: { userIds },
+    metadata: { userIds: uniqueUserIds },
   });
 
   return { channel: await channelRepository.findChannelById(channelId) };
