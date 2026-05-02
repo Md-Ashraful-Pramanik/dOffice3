@@ -425,6 +425,16 @@ function validateAdminUpdatePayload(payload) {
     }
   }
 
+  const ALLOWED_ADMIN_UPDATE_FIELDS = new Set([
+    'name', 'designation', 'department', 'status', 'roleIds', 'contactInfo', 'avatar', 'bio',
+  ]);
+
+  for (const key of Object.keys(user)) {
+    if (!ALLOWED_ADMIN_UPDATE_FIELDS.has(key)) {
+      errors[key] = ['is not allowed'];
+    }
+  }
+
   if (Object.keys(changes).length === 0 && Object.keys(errors).length === 0) {
     errors.user = ['must include at least one updatable field'];
   }
