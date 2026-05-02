@@ -17,6 +17,18 @@ const ORGANIZATION_COLUMNS = `
   COALESCE(user_counts.user_count, 0)::INT AS user_count
 `;
 
+const RELATIONSHIP_COLUMNS = `
+  r.id,
+  r.source_org_id,
+  r.target_org_id,
+  r.type,
+  r.description,
+  r.shared_modules,
+  r.created_by_user_id,
+  r.created_at,
+  r.updated_at
+`;
+
 function buildOrganizationSelect(fromClause, whereClause = '') {
   return `
     SELECT ${ORGANIZATION_COLUMNS}
@@ -31,6 +43,20 @@ function buildOrganizationSelect(fromClause, whereClause = '') {
       FROM users u
       WHERE u.org_id = o.id AND u.deleted_at IS NULL
     ) user_counts ON TRUE
+    ${whereClause ? `WHERE ${whereClause}` : ''}
+  `;
+}
+
+function buildRelationshipSelect(whereClause = '') {
+  return `
+    SELECT ${RELATIONSHIP_COLUMNS}
+    FROM organization_relationships r
+    INNER JOIN organizations source_org
+      ON source_org.id = r.source_org_id
+     AND source_org.deleted_at IS NULL
+    INNER JOIN organizations target_org
+      ON target_org.id = r.target_org_id
+     AND target_org.deleted_at IS NULL
     ${whereClause ? `WHERE ${whereClause}` : ''}
   `;
 }
@@ -53,6 +79,24 @@ function mapOrganization(row) {
     userCount: row.user_count,
     metadata: row.metadata || {},
     mergedIntoOrgId: row.merged_into_org_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapRelationship(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    sourceOrgId: row.source_org_id,
+    targetOrgId: row.target_org_id,
+    type: row.type,
+    description: row.description,
+    sharedModules: row.shared_modules || [],
+    createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -435,8 +479,93 @@ async function softDeleteOrganization(orgId, options = {}, db = { query }) {
   );
 }
 
+async function findRelationshipById(relationshipId, db = { query }) {
+  const result = await db.query(
+    `${buildRelationshipSelect('r.id = $1 AND r.deleted_at IS NULL')}`,
+    [relationshipId],
+  );
+
+  return mapRelationship(result.rows[0]);
+}
+
+async function listRelationshipsByOrganizationId(orgId, db = { query }) {
+  const result = await db.query(
+    `${buildRelationshipSelect(
+      '(r.source_org_id = $1 OR r.target_org_id = $1) AND r.deleted_at IS NULL',
+    )}
+     ORDER BY r.created_at DESC, r.id ASC`,
+    [orgId],
+  );
+
+  return result.rows.map(mapRelationship);
+}
+
+async function findActiveRelationshipBetweenOrganizations(sourceOrgId, targetOrgId, type, db = { query }) {
+  const result = await db.query(
+    `${buildRelationshipSelect(
+      `(
+        (r.source_org_id = $1 AND r.target_org_id = $2)
+        OR (r.source_org_id = $2 AND r.target_org_id = $1)
+      )
+      AND LOWER(r.type) = LOWER($3)
+      AND r.deleted_at IS NULL`,
+    )}
+     ORDER BY r.created_at DESC, r.id ASC
+     LIMIT 1`,
+    [sourceOrgId, targetOrgId, type],
+  );
+
+  return mapRelationship(result.rows[0]);
+}
+
+async function createRelationship(relationship, db = { query }) {
+  const result = await db.query(
+    `INSERT INTO organization_relationships (
+      id,
+      source_org_id,
+      target_org_id,
+      type,
+      description,
+      shared_modules,
+      created_by_user_id
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING
+      id,
+      source_org_id,
+      target_org_id,
+      type,
+      description,
+      shared_modules,
+      created_by_user_id,
+      created_at,
+      updated_at`,
+    [
+      relationship.id,
+      relationship.sourceOrgId,
+      relationship.targetOrgId,
+      relationship.type,
+      relationship.description,
+      relationship.sharedModules || [],
+      relationship.createdByUserId || null,
+    ],
+  );
+
+  return mapRelationship(result.rows[0]);
+}
+
+async function softDeleteRelationship(relationshipId, db = { query }) {
+  await db.query(
+    `UPDATE organization_relationships
+     SET deleted_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [relationshipId],
+  );
+}
+
 module.exports = {
   mapOrganization,
+  mapRelationship,
   findOrganizationById,
   findOrganizationByCode,
   listOrganizations,
@@ -455,4 +584,9 @@ module.exports = {
   countActiveChildren,
   countUsers,
   softDeleteOrganization,
+  findRelationshipById,
+  listRelationshipsByOrganizationId,
+  findActiveRelationshipBetweenOrganizations,
+  createRelationship,
+  softDeleteRelationship,
 };

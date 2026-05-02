@@ -167,6 +167,46 @@ const deleteOrganization = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+const listRelationships = asyncHandler(async (req, res) => {
+  const result = await organizationService.listRelationships(req.params.orgId, req.auth.user);
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'relationships.listed',
+    entityType: 'organization',
+    entityId: req.params.orgId,
+    statusCode: 200,
+    metadata: {
+      totalCount: result.totalCount,
+    },
+  });
+
+  res.status(200).json(result);
+});
+
+const createRelationship = asyncHandler(async (req, res) => {
+  const result = await organizationService.createRelationship(
+    req.params.orgId,
+    req.body,
+    req.auth.user,
+    req,
+  );
+
+  res.status(201).json(result);
+});
+
+const deleteRelationship = asyncHandler(async (req, res) => {
+  await organizationService.deleteRelationship(
+    req.params.orgId,
+    req.params.relationshipId,
+    req.auth.user,
+    req,
+  );
+
+  res.status(204).send();
+});
+
 module.exports = {
   listOrganizations,
   getOrganizationTree,
@@ -180,4 +220,7 @@ module.exports = {
   archiveOrganization,
   restoreOrganization,
   deleteOrganization,
+  listRelationships,
+  createRelationship,
+  deleteRelationship,
 };

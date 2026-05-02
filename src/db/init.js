@@ -117,6 +117,44 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS audits_user_id_created_at_idx
     ON audits (user_id, created_at DESC);
   `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS organization_relationships (
+      id TEXT PRIMARY KEY,
+      source_org_id TEXT NOT NULL REFERENCES organizations(id),
+      target_org_id TEXT NOT NULL REFERENCES organizations(id),
+      type TEXT NOT NULL,
+      description TEXT,
+      shared_modules TEXT[] NOT NULL DEFAULT '{}',
+      created_by_user_id TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      CONSTRAINT organization_relationships_distinct_orgs_chk CHECK (source_org_id <> target_org_id)
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS organization_relationships_source_org_idx
+    ON organization_relationships (source_org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS organization_relationships_target_org_idx
+    ON organization_relationships (target_org_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS organization_relationships_active_pair_type_unique_idx
+    ON organization_relationships (
+      LEAST(source_org_id, target_org_id),
+      GREATEST(source_org_id, target_org_id),
+      LOWER(type)
+    )
+    WHERE deleted_at IS NULL;
+  `);
 }
 
 module.exports = {

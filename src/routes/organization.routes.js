@@ -15,6 +15,13 @@ router.post('/organizations/:orgId/move', authenticate, organizationController.m
 router.post('/organizations/:orgId/clone', authenticate, organizationController.cloneOrganization);
 router.post('/organizations/:orgId/archive', authenticate, organizationController.archiveOrganization);
 router.post('/organizations/:orgId/restore', authenticate, organizationController.restoreOrganization);
+router.get('/organizations/:orgId/relationships', authenticate, organizationController.listRelationships);
+router.post('/organizations/:orgId/relationships', authenticate, organizationController.createRelationship);
+router.delete(
+  '/organizations/:orgId/relationships/:relationshipId',
+  authenticate,
+  organizationController.deleteRelationship,
+);
 router.delete('/organizations/:orgId', authenticate, organizationController.deleteOrganization);
 
 module.exports = router;

@@ -286,6 +286,69 @@ function validateClonePayload(payload) {
   };
 }
 
+function validateRelationshipPayload(payload) {
+  const relationship = payload && payload.relationship;
+
+  if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) {
+    throw validationError({ relationship: ["can't be blank"] });
+  }
+
+  const targetOrgId = normalizeString(relationship.targetOrgId);
+  const type = normalizeString(relationship.type);
+  const errors = {};
+
+  if (!targetOrgId) {
+    errors.targetOrgId = ["can't be blank"];
+  }
+
+  if (!type) {
+    errors.type = ["can't be blank"];
+  }
+
+  let description = null;
+
+  if (Object.prototype.hasOwnProperty.call(relationship, 'description')) {
+    if (relationship.description === null) {
+      description = null;
+    } else {
+      description = normalizeString(relationship.description);
+
+      if (!description) {
+        errors.description = ["can't be blank"];
+      }
+    }
+  }
+
+  let sharedModules = [];
+
+  if (Object.prototype.hasOwnProperty.call(relationship, 'sharedModules')) {
+    if (!Array.isArray(relationship.sharedModules)) {
+      errors.sharedModules = ['must be an array'];
+    } else {
+      const normalizedModules = relationship.sharedModules
+        .map((moduleName) => normalizeString(moduleName))
+        .filter((moduleName) => Boolean(moduleName));
+
+      if (normalizedModules.length !== relationship.sharedModules.length) {
+        errors.sharedModules = ['must contain non-empty strings'];
+      } else {
+        sharedModules = Array.from(new Set(normalizedModules));
+      }
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    throw validationError(errors);
+  }
+
+  return {
+    targetOrgId,
+    type: type.toLowerCase(),
+    description,
+    sharedModules,
+  };
+}
+
 function validateStatusFilter(status) {
   if (!status) {
     return null;
@@ -435,6 +498,31 @@ function toOrganizationPayload(organization) {
 function toSingleOrganizationResponse(organization) {
   return {
     organization: toOrganizationPayload(organization),
+  };
+}
+
+function toRelationshipPayload(relationship) {
+  return {
+    id: relationship.id,
+    sourceOrgId: relationship.sourceOrgId,
+    targetOrgId: relationship.targetOrgId,
+    type: relationship.type,
+    description: relationship.description,
+    sharedModules: relationship.sharedModules || [],
+    createdAt: relationship.createdAt,
+  };
+}
+
+function toSingleRelationshipResponse(relationship) {
+  return {
+    relationship: toRelationshipPayload(relationship),
+  };
+}
+
+function toMultipleRelationshipsResponse(relationships) {
+  return {
+    relationships: relationships.map(toRelationshipPayload),
+    totalCount: relationships.length,
   };
 }
 
@@ -1017,10 +1105,134 @@ async function deleteOrganization(orgId, user, req) {
   });
 }
 
+async function listRelationships(orgId, user) {
+  await ensureAccessibleOrganization(user, orgId);
+  const relationships = await organizationRepository.listRelationshipsByOrganizationId(orgId);
+
+  return toMultipleRelationshipsResponse(relationships);
+}
+
+async function createRelationship(orgId, payload, user, req) {
+  ensureOrgAdmin(user);
+  const input = validateRelationshipPayload(payload);
+
+  return withTransaction(async (db) => {
+    const { organization: source, accessibleIds } = await ensureAccessibleOrganization(user, orgId, {}, db);
+    const target = await getOrganizationOrThrow(input.targetOrgId, db);
+
+    if (source.id === target.id) {
+      throw validationError({ targetOrgId: ['must be different from orgId'] });
+    }
+
+    if (source.status !== 'active') {
+      throw validationError({ orgId: ['must reference an active organization'] });
+    }
+
+    if (target.status !== 'active') {
+      throw validationError({ targetOrgId: ['must reference an active organization'] });
+    }
+
+    if (!isSuperAdmin(user) && !accessibleIds.includes(target.id)) {
+      throw forbidden();
+    }
+
+    const existingRelationship = await organizationRepository.findActiveRelationshipBetweenOrganizations(
+      source.id,
+      target.id,
+      input.type,
+      db,
+    );
+
+    if (existingRelationship) {
+      throw validationError({ type: ['relationship already exists for the selected organizations'] });
+    }
+
+    const relationship = await organizationRepository.createRelationship(
+      {
+        id: generateId('rel'),
+        sourceOrgId: source.id,
+        targetOrgId: target.id,
+        type: input.type,
+        description: input.description,
+        sharedModules: input.sharedModules,
+        createdByUserId: user.id,
+      },
+      db,
+    );
+
+    await auditService.logAction(
+      {
+        req,
+        userId: user.id,
+        action: 'relationship.created',
+        entityType: 'relationship',
+        entityId: relationship.id,
+        statusCode: 201,
+        metadata: {
+          sourceOrgId: relationship.sourceOrgId,
+          targetOrgId: relationship.targetOrgId,
+          type: relationship.type,
+          sharedModulesCount: relationship.sharedModules.length,
+        },
+      },
+      db,
+    );
+
+    return toSingleRelationshipResponse(relationship);
+  });
+}
+
+async function deleteRelationship(orgId, relationshipId, user, req) {
+  ensureOrgAdmin(user);
+
+  return withTransaction(async (db) => {
+    const relationship = await organizationRepository.findRelationshipById(relationshipId, db);
+
+    if (!relationship) {
+      throw notFound();
+    }
+
+    if (relationship.sourceOrgId !== orgId && relationship.targetOrgId !== orgId) {
+      throw notFound();
+    }
+
+    if (!isSuperAdmin(user)) {
+      const accessibleIds = await getAccessibleOrganizationIds(user, db);
+
+      if (
+        !accessibleIds.includes(relationship.sourceOrgId)
+        && !accessibleIds.includes(relationship.targetOrgId)
+      ) {
+        throw forbidden();
+      }
+    }
+
+    await organizationRepository.softDeleteRelationship(relationship.id, db);
+
+    await auditService.logAction(
+      {
+        req,
+        userId: user.id,
+        action: 'relationship.deleted',
+        entityType: 'relationship',
+        entityId: relationship.id,
+        statusCode: 204,
+        metadata: {
+          sourceOrgId: relationship.sourceOrgId,
+          targetOrgId: relationship.targetOrgId,
+          type: relationship.type,
+        },
+      },
+      db,
+    );
+  });
+}
+
 module.exports = {
   isSuperAdmin,
   isOrgAdmin,
   toSingleOrganizationResponse,
+  toSingleRelationshipResponse,
   listOrganizations,
   getOrganizationTree,
   getOrganization,
@@ -1033,4 +1245,7 @@ module.exports = {
   archiveOrganization,
   restoreOrganization,
   deleteOrganization,
+  listRelationships,
+  createRelationship,
+  deleteRelationship,
 };
