@@ -67,7 +67,13 @@ const createChannel = asyncHandler(async (req, res) => {
 });
 
 const updateChannel = asyncHandler(async (req, res) => {
-  const result = await channelService.updateChannel(req.params.channelId, req.body, req.auth.user, req);
+  let result;
+  try {
+    result = await channelService.updateChannel(req.params.channelId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channels.update_failed', 'channel', req.params.channelId, error);
+    throw error;
+  }
   res.status(200).json(result);
 });
 
@@ -144,13 +150,21 @@ const createCategory = asyncHandler(async (req, res) => {
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
-  const result = await channelService.updateCategory(
-    req.params.orgId,
-    req.params.categoryId,
-    req.body,
-    req.auth.user,
-    req,
-  );
+  let result;
+  try {
+    result = await channelService.updateCategory(
+      req.params.orgId,
+      req.params.categoryId,
+      req.body,
+      req.auth.user,
+      req,
+    );
+  } catch (error) {
+    await logFailure(req, 'channel_categories.update_failed', 'channel_category', req.params.categoryId, error, {
+      orgId: req.params.orgId,
+    });
+    throw error;
+  }
   res.status(200).json(result);
 });
 
