@@ -197,12 +197,32 @@ const createRelationship = asyncHandler(async (req, res) => {
 });
 
 const deleteRelationship = asyncHandler(async (req, res) => {
-  await organizationService.deleteRelationship(
-    req.params.orgId,
-    req.params.relationshipId,
-    req.auth.user,
-    req,
-  );
+  try {
+    await organizationService.deleteRelationship(
+      req.params.orgId,
+      req.params.relationshipId,
+      req.auth.user,
+      req,
+    );
+  } catch (error) {
+    if (error && error.statusCode) {
+      await auditService.logAction({
+        req,
+        userId: req.auth.user.id,
+        action: 'relationship.delete_failed',
+        entityType: 'relationship',
+        entityId: req.params.relationshipId,
+        statusCode: error.statusCode,
+        metadata: {
+          orgId: req.params.orgId,
+          message: error.message,
+          details: error.details || {},
+        },
+      });
+    }
+
+    throw error;
+  }
 
   res.status(204).send();
 });

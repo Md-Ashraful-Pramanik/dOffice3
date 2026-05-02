@@ -26,7 +26,8 @@ const RELATIONSHIP_COLUMNS = `
   r.shared_modules,
   r.created_by_user_id,
   r.created_at,
-  r.updated_at
+  r.updated_at,
+  r.deleted_at
 `;
 
 function buildOrganizationSelect(fromClause, whereClause = '') {
@@ -99,6 +100,7 @@ function mapRelationship(row) {
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
   };
 }
 
@@ -488,6 +490,15 @@ async function findRelationshipById(relationshipId, db = { query }) {
   return mapRelationship(result.rows[0]);
 }
 
+async function findRelationshipByIdIncludingDeleted(relationshipId, db = { query }) {
+  const result = await db.query(
+    `${buildRelationshipSelect('r.id = $1')}`,
+    [relationshipId],
+  );
+
+  return mapRelationship(result.rows[0]);
+}
+
 async function listRelationshipsByOrganizationId(orgId, db = { query }) {
   const result = await db.query(
     `${buildRelationshipSelect(
@@ -554,13 +565,15 @@ async function createRelationship(relationship, db = { query }) {
 }
 
 async function softDeleteRelationship(relationshipId, db = { query }) {
-  await db.query(
+  const result = await db.query(
     `UPDATE organization_relationships
      SET deleted_at = NOW(),
          updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
     [relationshipId],
   );
+
+  return result.rowCount;
 }
 
 module.exports = {
@@ -585,6 +598,7 @@ module.exports = {
   countUsers,
   softDeleteOrganization,
   findRelationshipById,
+  findRelationshipByIdIncludingDeleted,
   listRelationshipsByOrganizationId,
   findActiveRelationshipBetweenOrganizations,
   createRelationship,

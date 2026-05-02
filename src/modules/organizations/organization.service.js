@@ -27,8 +27,8 @@ function forbidden() {
   return new AppError(403, FORBIDDEN_MESSAGE);
 }
 
-function notFound() {
-  return new AppError(404, NOT_FOUND_MESSAGE);
+function notFound(details) {
+  return new AppError(404, NOT_FOUND_MESSAGE, details);
 }
 
 function normalizeString(value) {
@@ -1186,14 +1186,33 @@ async function deleteRelationship(orgId, relationshipId, user, req) {
   ensureOrgAdmin(user);
 
   return withTransaction(async (db) => {
-    const relationship = await organizationRepository.findRelationshipById(relationshipId, db);
+    const relationship = await organizationRepository.findRelationshipByIdIncludingDeleted(
+      relationshipId,
+      db,
+    );
 
     if (!relationship) {
-      throw notFound();
+      throw notFound({
+        orgId,
+        relationshipId,
+        reason: 'missing',
+      });
+    }
+
+    if (relationship.deletedAt) {
+      throw notFound({
+        orgId,
+        relationshipId,
+        reason: 'already_deleted',
+      });
     }
 
     if (relationship.sourceOrgId !== orgId && relationship.targetOrgId !== orgId) {
-      throw notFound();
+      throw notFound({
+        orgId,
+        relationshipId,
+        reason: 'org_mismatch',
+      });
     }
 
     if (!isSuperAdmin(user)) {
@@ -1207,7 +1226,15 @@ async function deleteRelationship(orgId, relationshipId, user, req) {
       }
     }
 
-    await organizationRepository.softDeleteRelationship(relationship.id, db);
+    const deletedCount = await organizationRepository.softDeleteRelationship(relationship.id, db);
+
+    if (deletedCount === 0) {
+      throw notFound({
+        orgId,
+        relationshipId,
+        reason: 'already_deleted',
+      });
+    }
 
     await auditService.logAction(
       {
