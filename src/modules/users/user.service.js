@@ -13,6 +13,16 @@ const USER_STATUSES = new Set(['active', 'suspended', 'on-leave', 'deactivated',
 const DIRECTORY_VISIBLE_STATUSES = ['active', 'suspended', 'on-leave'];
 const SUPER_ADMIN_ROLES = new Set(['super_admin', 'role_super_admin']);
 const ORG_ADMIN_ROLES = new Set(['org_admin', 'role_org_admin']);
+const IMMUTABLE_CURRENT_USER_FIELDS = new Set([
+  'id',
+  'username',
+  'email',
+  'name',
+  'employeeId',
+  'orgId',
+  'roleIds',
+  'status',
+]);
 const SESSION_ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
 function normalizeRole(role) {
@@ -165,6 +175,12 @@ function validateCurrentUserUpdatePayload(payload) {
   }
 
   const changes = {};
+
+  Object.keys(user).forEach((field) => {
+    if (IMMUTABLE_CURRENT_USER_FIELDS.has(field)) {
+      errors[field] = ['is immutable'];
+    }
+  });
 
   if (Object.prototype.hasOwnProperty.call(user, 'password')) {
     const password = normalizeString(user.password);
