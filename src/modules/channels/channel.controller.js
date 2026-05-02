@@ -1,5 +1,19 @@
 const asyncHandler = require('../../utils/async-handler');
+const auditService = require('../audits/audit.service');
 const channelService = require('./channel.service');
+
+async function logFailure(req, action, entityType, entityId, error, metadata = {}) {
+  if (!error || !error.statusCode) return;
+  await auditService.logAction({
+    req,
+    userId: req.auth && req.auth.user ? req.auth.user.id : null,
+    action,
+    entityType,
+    entityId,
+    statusCode: error.statusCode,
+    metadata: { message: error.message, details: error.details || {}, ...metadata },
+  });
+}
 
 const listChannels = asyncHandler(async (req, res) => {
   const result = await channelService.listChannels(req.query, req.auth.user, req.params.orgId);
@@ -12,7 +26,13 @@ const getChannel = asyncHandler(async (req, res) => {
 });
 
 const createChannel = asyncHandler(async (req, res) => {
-  const result = await channelService.createChannel(req.params.orgId, req.body, req.auth.user, req);
+  let result;
+  try {
+    result = await channelService.createChannel(req.params.orgId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channels.create_failed', 'organization', req.params.orgId, error);
+    throw error;
+  }
   res.status(201).json(result);
 });
 
@@ -63,7 +83,22 @@ const setMemberRole = asyncHandler(async (req, res) => {
 });
 
 const listCategories = asyncHandler(async (req, res) => {
-  const result = await channelService.listCategories(req.params.orgId);
+  let result;
+  try {
+    result = await channelService.listCategories(req.params.orgId);
+  } catch (error) {
+    await logFailure(req, 'channel_categories.list_failed', 'organization', req.params.orgId, error);
+    throw error;
+  }
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'channel_categories.listed',
+    entityType: 'organization',
+    entityId: req.params.orgId,
+    statusCode: 200,
+    metadata: { count: result.categories.length },
+  });
   res.status(200).json(result);
 });
 
