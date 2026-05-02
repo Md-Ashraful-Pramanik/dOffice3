@@ -336,9 +336,11 @@ async function removeConversationParticipant(conversationId, targetUserId, user,
     throw validationError({ conversation: 'Only group conversations support participant management.' });
   }
 
-  const actorParticipant = await ensureConversationParticipant(conversationId, user.id);
-  if (!actorParticipant.is_admin && conversation.created_by_user_id !== user.id) {
-    throw forbidden();
+  if (!isOrgAdmin(user)) {
+    const actorParticipant = await ensureConversationParticipant(conversationId, user.id);
+    if (!actorParticipant.is_admin && conversation.created_by_user_id !== user.id) {
+      throw forbidden();
+    }
   }
 
   const participant = await messageRepository.findConversationParticipant(conversationId, targetUserId);
@@ -645,7 +647,9 @@ async function removeReaction(messageId, emoji, user, req) {
     throw validationError({ emoji: 'emoji is required.' });
   }
 
-  await messageRepository.removeReaction(messageId, user.id, String(emoji).trim());
+  const normalizedEmoji = String(emoji).trim();
+  const removedCount = await messageRepository.removeReaction(messageId, user.id, normalizedEmoji);
+  if (removedCount === 0) throw notFound();
 
   await auditService.logAction({
     req,
@@ -654,7 +658,7 @@ async function removeReaction(messageId, emoji, user, req) {
     entityType: 'message',
     entityId: messageId,
     statusCode: 204,
-    metadata: { emoji },
+    metadata: { emoji: normalizedEmoji },
   });
 }
 
@@ -761,7 +765,8 @@ async function addBookmark(body, user, req) {
 }
 
 async function removeBookmark(messageId, user, req) {
-  await messageRepository.removeBookmark(user.id, messageId);
+  const removedCount = await messageRepository.removeBookmark(user.id, messageId);
+  if (removedCount === 0) throw notFound();
 
   await auditService.logAction({
     req,

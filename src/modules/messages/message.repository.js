@@ -502,7 +502,7 @@ async function addReaction(input, db = { query }) {
 }
 
 async function removeReaction(messageId, userId, emoji, db = { query }) {
-  await db.query(
+  const result = await db.query(
     `UPDATE message_reactions
      SET deleted_at = NOW()
      WHERE message_id = $1
@@ -511,6 +511,8 @@ async function removeReaction(messageId, userId, emoji, db = { query }) {
        AND deleted_at IS NULL`,
     [messageId, userId, emoji],
   );
+
+  return result.rowCount;
 }
 
 async function listMessageReactions(messageId, db = { query }) {
@@ -611,7 +613,7 @@ async function addBookmark(input, db = { query }) {
 }
 
 async function removeBookmark(userId, messageId, db = { query }) {
-  await db.query(
+  const result = await db.query(
     `UPDATE message_bookmarks
      SET deleted_at = NOW()
      WHERE user_id = $1
@@ -619,6 +621,8 @@ async function removeBookmark(userId, messageId, db = { query }) {
        AND deleted_at IS NULL`,
     [userId, messageId],
   );
+
+  return result.rowCount;
 }
 
 async function createPoll(input) {
