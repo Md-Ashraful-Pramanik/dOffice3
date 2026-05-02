@@ -399,6 +399,19 @@ async function countChildren(orgId, db = { query }) {
   return result.rows[0].count;
 }
 
+async function countActiveChildren(orgId, db = { query }) {
+  const result = await db.query(
+    `SELECT COUNT(*)::INT AS count
+     FROM organizations
+     WHERE parent_id = $1
+       AND status = 'active'
+       AND deleted_at IS NULL`,
+    [orgId],
+  );
+
+  return result.rows[0].count;
+}
+
 async function countUsers(orgId, db = { query }) {
   const result = await db.query(
     `SELECT COUNT(*)::INT AS count
@@ -439,6 +452,7 @@ module.exports = {
   reassignDirectChildren,
   reassignUsersToOrganization,
   countChildren,
+  countActiveChildren,
   countUsers,
   softDeleteOrganization,
 };

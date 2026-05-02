@@ -988,11 +988,18 @@ async function deleteOrganization(orgId, user, req) {
 
   return withTransaction(async (db) => {
     const organization = await getOrganizationOrThrow(orgId, db);
-    const childCount = await organizationRepository.countChildren(organization.id, db);
+    const activeChildCount = await organizationRepository.countActiveChildren(organization.id, db);
     const userCount = await organizationRepository.countUsers(organization.id, db);
 
-    if (childCount > 0 || userCount > 0) {
-      throw new AppError(409, 'Organization cannot be deleted while child organizations or users still exist.');
+    if (activeChildCount > 0 || userCount > 0) {
+      throw new AppError(
+        409,
+        'Organization cannot be deleted while child organizations or users still exist.',
+        {
+          activeChildCount,
+          userCount,
+        },
+      );
     }
 
     await organizationRepository.softDeleteOrganization(organization.id, {}, db);

@@ -143,7 +143,27 @@ const restoreOrganization = asyncHandler(async (req, res) => {
 });
 
 const deleteOrganization = asyncHandler(async (req, res) => {
-  await organizationService.deleteOrganization(req.params.orgId, req.auth.user, req);
+  try {
+    await organizationService.deleteOrganization(req.params.orgId, req.auth.user, req);
+  } catch (error) {
+    if (error && error.statusCode) {
+      await auditService.logAction({
+        req,
+        userId: req.auth.user.id,
+        action: 'organization.delete_failed',
+        entityType: 'organization',
+        entityId: req.params.orgId,
+        statusCode: error.statusCode,
+        metadata: {
+          message: error.message,
+          details: error.details || {},
+        },
+      });
+    }
+
+    throw error;
+  }
+
   res.status(204).send();
 });
 
