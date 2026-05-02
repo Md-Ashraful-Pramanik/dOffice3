@@ -222,6 +222,21 @@ async function createConversation(body, user, req) {
     const existingId = await messageRepository.findExistingDmConversationBetweenUsers(user.id, participantIds[0]);
     if (existingId) {
       const existing = await hydrateConversation(existingId);
+
+      await auditService.logAction({
+        req,
+        userId: user.id,
+        action: 'conversations.created',
+        entityType: 'conversation',
+        entityId: existingId,
+        statusCode: 201,
+        metadata: {
+          type: 'dm',
+          participantCount: existing && Array.isArray(existing.participants) ? existing.participants.length : 2,
+          resolvedToExisting: true,
+        },
+      });
+
       return { conversation: existing };
     }
   }

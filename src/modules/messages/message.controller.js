@@ -119,6 +119,22 @@ const listChannelMessages = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.channel_listed',
+    entityType: 'channel',
+    entityId: req.params.channelId,
+    statusCode: 200,
+    metadata: {
+      count: result.messages.length,
+      hasMore: result.hasMore,
+      limit: req.query.limit,
+      before: req.query.before,
+      after: req.query.after,
+    },
+  });
+
   res.status(200).json(result);
 });
 
@@ -130,6 +146,22 @@ const listConversationMessages = asyncHandler(async (req, res) => {
     await logFailure(req, 'messages.list_conversation_failed', 'conversation', req.params.conversationId, error);
     throw error;
   }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.conversation_listed',
+    entityType: 'conversation',
+    entityId: req.params.conversationId,
+    statusCode: 200,
+    metadata: {
+      count: result.messages.length,
+      hasMore: result.hasMore,
+      limit: req.query.limit,
+      before: req.query.before,
+      after: req.query.after,
+    },
+  });
 
   res.status(200).json(result);
 });
@@ -167,6 +199,15 @@ const getMessage = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.viewed',
+    entityType: 'message',
+    entityId: req.params.messageId,
+    statusCode: 200,
+  });
+
   res.status(200).json(result);
 });
 
@@ -202,6 +243,16 @@ const getMessageEdits = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.edits_listed',
+    entityType: 'message',
+    entityId: req.params.messageId,
+    statusCode: 200,
+    metadata: { count: result.edits.length },
+  });
+
   res.status(200).json(result);
 });
 
@@ -213,6 +264,21 @@ const getThread = asyncHandler(async (req, res) => {
     await logFailure(req, 'messages.thread_list_failed', 'message', req.params.messageId, error);
     throw error;
   }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.thread_listed',
+    entityType: 'message',
+    entityId: req.params.messageId,
+    statusCode: 200,
+    metadata: {
+      count: result.messages.length,
+      hasMore: result.hasMore,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    },
+  });
 
   res.status(200).json(result);
 });
@@ -263,6 +329,16 @@ const listChannelPins = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.pins_listed',
+    entityType: 'channel',
+    entityId: req.params.channelId,
+    statusCode: 200,
+    metadata: { count: result.messages.length },
+  });
+
   res.status(200).json(result);
 });
 
@@ -297,6 +373,21 @@ const listBookmarks = asyncHandler(async (req, res) => {
     await logFailure(req, 'messages.bookmarks_list_failed', 'user', req.auth.user.id, error);
     throw error;
   }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.bookmarks_listed',
+    entityType: 'user',
+    entityId: req.auth.user.id,
+    statusCode: 200,
+    metadata: {
+      count: result.messages.length,
+      hasMore: result.hasMore,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    },
+  });
 
   res.status(200).json(result);
 });
@@ -356,6 +447,15 @@ const getPoll = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'polls.viewed',
+    entityType: 'poll',
+    entityId: req.params.pollId,
+    statusCode: 200,
+  });
+
   res.status(200).json(result);
 });
 
@@ -367,6 +467,22 @@ const searchMessages = asyncHandler(async (req, res) => {
     await logFailure(req, 'messages.search_failed', 'user', req.auth.user.id, error);
     throw error;
   }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.searched',
+    entityType: 'user',
+    entityId: req.auth.user.id,
+    statusCode: 200,
+    metadata: {
+      count: result.messages.length,
+      hasMore: result.hasMore,
+      limit: req.query.limit,
+      offset: req.query.offset,
+      query: req.query.q,
+    },
+  });
 
   res.status(200).json(result);
 });
