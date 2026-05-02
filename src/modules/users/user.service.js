@@ -1074,6 +1074,23 @@ async function deactivateUser(userId, authUser, req) {
   return withTransaction(async (db) => {
     const targetUser = await getUserOrThrow(userId, db);
     await ensureAccessibleUser(authUser, targetUser, db);
+
+    if (targetUser.status === 'deactivated') {
+      await auditService.logAction(
+        {
+          req,
+          userId: authUser.id,
+          action: 'users.deactivate_failed',
+          entityType: 'user',
+          entityId: userId,
+          statusCode: 422,
+          metadata: { reason: 'User is already deactivated.' },
+        },
+        db,
+      );
+      throw validationError({ status: ['User is already deactivated.'] });
+    }
+
     const updatedUser = await userRepository.updateUser(userId, { status: 'deactivated' }, db);
     await authRepository.revokeAllUserSessions(userId, db);
 
