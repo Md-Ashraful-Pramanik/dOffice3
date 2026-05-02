@@ -174,7 +174,15 @@ const deleteCategory = asyncHandler(async (req, res) => {
 });
 
 const reorderCategories = asyncHandler(async (req, res) => {
-  const result = await channelService.reorderCategories(req.params.orgId, req.body, req.auth.user, req);
+  let result;
+  try {
+    result = await channelService.reorderCategories(req.params.orgId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'channel_categories.reorder_failed', 'organization', req.params.orgId, error, {
+      orgId: req.params.orgId,
+    });
+    throw error;
+  }
   res.status(200).json(result);
 });
 

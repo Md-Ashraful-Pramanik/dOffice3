@@ -5,6 +5,7 @@ const channelRepository = require('./channel.repository');
 
 const CHANNEL_TYPES = new Set(['public', 'private', 'announcement', 'cross-org']);
 const CHANNEL_MEMBER_ROLES = new Set(['admin', 'moderator', 'member']);
+const CHANNEL_UPDATE_FIELDS = new Set(['name', 'description', 'topic', 'categoryId', 'type']);
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
 const NOT_FOUND_MESSAGE = 'Resource not found.';
@@ -182,6 +183,22 @@ async function updateChannel(channelId, body, user, req) {
 
   const data = (body && body.channel) || {};
   const errors = {};
+
+  for (const key of Object.keys(body || {})) {
+    if (key !== 'channel') {
+      errors[key] = ['is not allowed'];
+    }
+  }
+
+  if (body && body.channel !== undefined && (!body.channel || typeof body.channel !== 'object' || Array.isArray(body.channel))) {
+    errors.channel = ['must be an object'];
+  }
+
+  for (const key of Object.keys(data)) {
+    if (!CHANNEL_UPDATE_FIELDS.has(key)) {
+      errors[key] = ['is not allowed'];
+    }
+  }
 
   const updates = {};
 
