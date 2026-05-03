@@ -5,6 +5,15 @@ const messageRepository = require('./message.repository');
 const organizationRepository = require('../organizations/organization.repository');
 const notificationRepository = require('../notifications/notification.repository');
 const userRepository = require('../users/user.repository');
+const realtimeRepository = require('../realtime/realtime.repository');
+
+let _ws = null;
+function getWebSocket() {
+  if (!_ws) {
+    try { _ws = require('../../realtime/websocket'); } catch (_) {}
+  }
+  return _ws;
+}
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
 const NOT_FOUND_MESSAGE = 'Resource not found.';
@@ -177,6 +186,7 @@ function validateMessagePayload(body) {
     mentions: Array.isArray(data.mentions) ? [...new Set(data.mentions)] : [],
     replyTo: data.replyTo || null,
     encryption: data.encryption && typeof data.encryption === 'object' ? data.encryption : {},
+    clientMsgId: typeof data.clientMsgId === 'string' && data.clientMsgId.trim() ? data.clientMsgId.trim() : null,
   };
 }
 
@@ -334,7 +344,7 @@ async function createChannelMentionNotifications({
     if (isChannelMutedForNotifications(preferences, channel.id)) continue;
     if (isDoNotDisturbActive(preferences)) continue;
 
-    await notificationRepository.createNotification({
+    const notif = await notificationRepository.createNotification({
       id: generateId('notif'),
       userId: mentionedUserId,
       type: 'mention',
@@ -342,6 +352,19 @@ async function createChannelMentionNotifications({
       body: buildMentionNotificationBody(messageBody),
       link: `/channels/${channel.id}/messages/${messageId}`,
     });
+
+    const ws = getWebSocket();
+    if (ws && notif) {
+      ws.broadcastToUsers([mentionedUserId], 'notification:new', {
+        id: notif.id,
+        type: notif.type,
+        title: notif.title,
+        body: notif.body,
+        link: notif.link,
+        createdAt: notif.createdAt,
+        read: false,
+      }).catch(() => {});
+    }
   }
 }
 
@@ -610,9 +633,11 @@ async function sendChannelMessage(channelId, body, user, req) {
     attachments: payload.attachments,
     mentions: payload.mentions,
     encryption: payload.encryption,
+    clientMsgId: payload.clientMsgId,
   });
 
   const row = await messageRepository.findMessageById(id);
+  const mappedMessage = await toMessageResponse(row);
 
   await createChannelMentionNotifications({
     channel,
@@ -621,6 +646,26 @@ async function sendChannelMessage(channelId, body, user, req) {
     sender: user,
     mentionedUserIds: payload.mentions,
   });
+
+  const ws = getWebSocket();
+  if (ws) {
+    realtimeRepository.listChannelMemberUserIds(channelId)
+      .then((audience) => ws.broadcastToUsers(audience, 'message:new', {
+        id: mappedMessage.id,
+        targetType: mappedMessage.targetType,
+        targetId: mappedMessage.targetId,
+        body: mappedMessage.body,
+        format: mappedMessage.format,
+        sender: mappedMessage.sender,
+        createdAt: mappedMessage.createdAt,
+        replyTo: mappedMessage.replyTo,
+        attachments: mappedMessage.attachments || [],
+        mentions: mappedMessage.mentions || [],
+        reactions: mappedMessage.reactions || [],
+        clientMsgId: mappedMessage.clientMsgId,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
@@ -632,9 +677,7 @@ async function sendChannelMessage(channelId, body, user, req) {
     metadata: { targetType: 'channel', targetId: channelId },
   });
 
-  return {
-    message: await toMessageResponse(row),
-  };
+  return { message: mappedMessage };
 }
 
 async function sendConversationMessage(conversationId, body, user, req) {
@@ -654,9 +697,31 @@ async function sendConversationMessage(conversationId, body, user, req) {
     attachments: payload.attachments,
     mentions: payload.mentions,
     encryption: payload.encryption,
+    clientMsgId: payload.clientMsgId,
   });
 
   const row = await messageRepository.findMessageById(id);
+  const mappedMessage = await toMessageResponse(row);
+
+  const ws = getWebSocket();
+  if (ws) {
+    realtimeRepository.listConversationParticipantUserIds(conversationId)
+      .then((audience) => ws.broadcastToUsers(audience, 'message:new', {
+        id: mappedMessage.id,
+        targetType: mappedMessage.targetType,
+        targetId: mappedMessage.targetId,
+        body: mappedMessage.body,
+        format: mappedMessage.format,
+        sender: mappedMessage.sender,
+        createdAt: mappedMessage.createdAt,
+        replyTo: mappedMessage.replyTo,
+        attachments: mappedMessage.attachments || [],
+        mentions: mappedMessage.mentions || [],
+        reactions: mappedMessage.reactions || [],
+        clientMsgId: mappedMessage.clientMsgId,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
@@ -669,7 +734,7 @@ async function sendConversationMessage(conversationId, body, user, req) {
   });
 
   return {
-    message: await toMessageResponse(row),
+    message: mappedMessage,
   };
 }
 
@@ -704,6 +769,25 @@ async function updateMessage(messageId, body, user, req) {
   await messageRepository.updateMessageBody(messageId, data.body.trim());
   const updated = await messageRepository.findMessageById(messageId);
 
+  const ws = getWebSocket();
+  if (ws) {
+    const targetType = current.target_type;
+    const targetId = current.target_id;
+    const audiencePromise = targetType === 'channel'
+      ? realtimeRepository.listChannelMemberUserIds(targetId)
+      : realtimeRepository.listConversationParticipantUserIds(targetId);
+    audiencePromise
+      .then((audience) => ws.broadcastToUsers(audience, 'message:edited', {
+        id: messageId,
+        targetType,
+        targetId,
+        body: data.body.trim(),
+        editedAt: updated.edited_at,
+        editedBy: user.id,
+      }))
+      .catch(() => {});
+  }
+
   await auditService.logAction({
     req,
     userId: user.id,
@@ -733,7 +817,24 @@ async function deleteMessage(messageId, user, req) {
 
   if (!canDelete) throw forbidden();
 
+  const targetType = message.target_type;
+  const targetId = message.target_id;
   await messageRepository.softDeleteMessage(messageId);
+
+  const ws = getWebSocket();
+  if (ws) {
+    const audiencePromise = targetType === 'channel'
+      ? realtimeRepository.listChannelMemberUserIds(targetId)
+      : realtimeRepository.listConversationParticipantUserIds(targetId);
+    audiencePromise
+      .then((audience) => ws.broadcastToUsers(audience, 'message:deleted', {
+        id: messageId,
+        targetType,
+        targetId,
+        deletedBy: user.id,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
@@ -822,7 +923,7 @@ async function postThreadReply(messageId, body, user, req) {
 }
 
 async function addReaction(messageId, body, user, req) {
-  await ensureMessageAccess(messageId, user);
+  const message = await ensureMessageAccess(messageId, user);
 
   const emoji = body && typeof body.emoji === 'string' ? body.emoji.trim() : '';
   if (!emoji) throw validationError({ emoji: 'emoji is required.' });
@@ -835,6 +936,22 @@ async function addReaction(messageId, body, user, req) {
   });
 
   const reactions = await messageRepository.listMessageReactions(messageId);
+
+  const ws = getWebSocket();
+  if (ws) {
+    const targetType = message.target_type;
+    const targetId = message.target_id;
+    const audiencePromise = targetType === 'channel'
+      ? realtimeRepository.listChannelMemberUserIds(targetId)
+      : realtimeRepository.listConversationParticipantUserIds(targetId);
+    audiencePromise
+      .then((audience) => ws.broadcastToUsers(audience, 'reaction:added', {
+        messageId,
+        emoji,
+        userId: user.id,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
@@ -850,7 +967,7 @@ async function addReaction(messageId, body, user, req) {
 }
 
 async function removeReaction(messageId, emoji, user, req) {
-  await ensureMessageAccess(messageId, user);
+  const message = await ensureMessageAccess(messageId, user);
 
   if (!emoji || !String(emoji).trim()) {
     throw validationError({ emoji: 'emoji is required.' });
@@ -859,6 +976,22 @@ async function removeReaction(messageId, emoji, user, req) {
   const normalizedEmoji = String(emoji).trim();
   const removedCount = await messageRepository.removeReaction(messageId, user.id, normalizedEmoji);
   if (removedCount === 0) throw notFound();
+
+  const ws = getWebSocket();
+  if (ws) {
+    const targetType = message.target_type;
+    const targetId = message.target_id;
+    const audiencePromise = targetType === 'channel'
+      ? realtimeRepository.listChannelMemberUserIds(targetId)
+      : realtimeRepository.listConversationParticipantUserIds(targetId);
+    audiencePromise
+      .then((audience) => ws.broadcastToUsers(audience, 'reaction:removed', {
+        messageId,
+        emoji: normalizedEmoji,
+        userId: user.id,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,

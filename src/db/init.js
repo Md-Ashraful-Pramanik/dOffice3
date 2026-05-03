@@ -812,6 +812,98 @@ async function initializeDatabase() {
       deleted_at TIMESTAMPTZ
     );
   `);
+
+  // Realtime: column additions
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;`);
+  await query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;`);
+  await query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_msg_id TEXT;`);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS messages_expires_at_idx
+    ON messages (expires_at)
+    WHERE deleted_at IS NULL AND expires_at IS NOT NULL;
+  `);
+
+  // Realtime: user presence
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_presence (
+      user_id TEXT PRIMARY KEY REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'online',
+      custom_text TEXT,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  // Realtime: typing states
+  await query(`
+    CREATE TABLE IF NOT EXISTS typing_states (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      is_typing BOOLEAN NOT NULL DEFAULT FALSE,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, target_type, target_id)
+    );
+  `);
+
+  // Realtime: read markers
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_reads (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      last_read_message_id TEXT NOT NULL REFERENCES messages(id),
+      read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, target_type, target_id)
+    );
+  `);
+
+  // Realtime: voice channel participants
+  await query(`
+    CREATE TABLE IF NOT EXISTS voice_channel_participants (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES channels(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      left_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS voice_participants_channel_idx
+    ON voice_channel_participants (channel_id)
+    WHERE deleted_at IS NULL;
+  `);
+
+  // Realtime: WebRTC signals
+  await query(`
+    CREATE TABLE IF NOT EXISTS rtc_signals (
+      id TEXT PRIMARY KEY,
+      call_id TEXT NOT NULL,
+      from_user_id TEXT NOT NULL REFERENCES users(id),
+      target_user_id TEXT NOT NULL REFERENCES users(id),
+      signal_type TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS rtc_signals_call_idx
+    ON rtc_signals (call_id, created_at DESC);
+  `);
 }
 
 module.exports = {

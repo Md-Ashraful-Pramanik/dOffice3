@@ -57,6 +57,7 @@ function mapMessageRow(row, reactions = [], threadReplyCount = 0) {
     pinned: row.pinned,
     edited: row.edited,
     editedAt: row.edited_at,
+    clientMsgId: row.client_msg_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -394,7 +395,9 @@ async function createMessage(input, db = { query }) {
       reply_to,
       attachments,
       mentions,
-      encryption
+      encryption,
+      client_msg_id,
+      expires_at
     ) VALUES (
       $1,
       $2,
@@ -406,7 +409,9 @@ async function createMessage(input, db = { query }) {
       $8,
       $9::jsonb,
       $10,
-      $11::jsonb
+      $11::jsonb,
+      $12,
+      $13
     )`,
     [
       input.id,
@@ -420,6 +425,8 @@ async function createMessage(input, db = { query }) {
       JSON.stringify(input.attachments || []),
       input.mentions || [],
       JSON.stringify(input.encryption || {}),
+      input.clientMsgId || null,
+      input.expiresAt || null,
     ],
   );
 

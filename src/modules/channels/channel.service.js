@@ -3,6 +3,16 @@ const { generateId } = require('../../utils/id');
 const { query } = require('../../db/pool');
 const auditService = require('../audits/audit.service');
 const channelRepository = require('./channel.repository');
+const userRepository = require('../users/user.repository');
+const realtimeRepository = require('../realtime/realtime.repository');
+
+let _ws = null;
+function getWebSocket() {
+  if (!_ws) {
+    try { _ws = require('../../realtime/websocket'); } catch (_) {}
+  }
+  return _ws;
+}
 
 const CHANNEL_TYPES = new Set(['public', 'private', 'announcement', 'cross-org']);
 const CHANNEL_MEMBER_ROLES = new Set(['admin', 'moderator', 'member']);
@@ -293,6 +303,17 @@ async function updateChannel(channelId, body, user, req) {
 
   const updated = await channelRepository.updateChannel(channelId, updates);
 
+  const ws = getWebSocket();
+  if (ws) {
+    realtimeRepository.listChannelMemberUserIds(channelId)
+      .then((audience) => ws.broadcastToUsers(audience, 'channel:updated', {
+        channelId,
+        changes: updates,
+        updatedBy: user.id,
+      }))
+      .catch(() => {});
+  }
+
   await auditService.logAction({
     req,
     userId: user.id,
@@ -374,6 +395,17 @@ async function joinChannel(channelId, user, req) {
       role: 'member',
       addedByUserId: user.id,
     });
+
+    const ws = getWebSocket();
+    if (ws) {
+      realtimeRepository.listChannelMemberUserIds(channelId)
+        .then((audience) => ws.broadcastToUsers(audience, 'channel:member_joined', {
+          channelId,
+          userId: user.id,
+          username: user.username,
+        }))
+        .catch(() => {});
+    }
   }
 
   await auditService.logAction({
@@ -404,6 +436,17 @@ async function leaveChannel(channelId, user, req) {
   }
 
   await channelRepository.removeMember(channelId, user.id);
+
+  const ws = getWebSocket();
+  if (ws) {
+    realtimeRepository.listChannelMemberUserIds(channelId)
+      .then((audience) => ws.broadcastToUsers([...audience, user.id], 'channel:member_left', {
+        channelId,
+        userId: user.id,
+        username: user.username,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
@@ -463,6 +506,21 @@ async function inviteToChannel(channelId, body, user, req) {
     });
   }
 
+  const ws = getWebSocket();
+  if (ws) {
+    for (const uid of uniqueUserIds) {
+      const invitedUser = await userRepository.findActiveUserById(uid);
+      if (!invitedUser) continue;
+      realtimeRepository.listChannelMemberUserIds(channelId)
+        .then((audience) => ws.broadcastToUsers(audience, 'channel:member_joined', {
+          channelId,
+          userId: uid,
+          username: invitedUser.username,
+        }))
+        .catch(() => {});
+    }
+  }
+
   await auditService.logAction({
     req,
     userId: user.id,
@@ -486,7 +544,19 @@ async function removeMember(channelId, targetUserId, user, req) {
   const targetMembership = await channelRepository.findMembership(channelId, targetUserId);
   if (!targetMembership) throw notFound();
 
+  const targetUser = await userRepository.findActiveUserById(targetUserId);
   await channelRepository.removeMember(channelId, targetUserId);
+
+  const ws = getWebSocket();
+  if (ws) {
+    realtimeRepository.listChannelMemberUserIds(channelId)
+      .then((audience) => ws.broadcastToUsers([...audience, targetUserId], 'channel:member_left', {
+        channelId,
+        userId: targetUserId,
+        username: targetUser?.username || targetUserId,
+      }))
+      .catch(() => {});
+  }
 
   await auditService.logAction({
     req,
