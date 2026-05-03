@@ -36,6 +36,18 @@ router.get('/conversations/:conversationId/messages', authenticate, messageContr
 router.post('/channels/:channelId/messages', authenticate, messageController.sendChannelMessage);
 router.post('/conversations/:conversationId/messages', authenticate, messageController.sendConversationMessage);
 
+router.get('/channels/:channelId/messages/:messageId', authenticate, messageController.getChannelMessage);
+router.put('/channels/:channelId/messages/:messageId', authenticate, messageController.updateChannelMessage);
+router.delete('/channels/:channelId/messages/:messageId', authenticate, messageController.deleteChannelMessage);
+router.post('/channels/:channelId/messages/:messageId/reactions', authenticate, messageController.addChannelMessageReaction);
+router.delete('/channels/:channelId/messages/:messageId/reactions/:emoji', authenticate, messageController.removeChannelMessageReaction);
+
+router.get('/conversations/:conversationId/messages/:messageId', authenticate, messageController.getConversationMessage);
+router.put('/conversations/:conversationId/messages/:messageId', authenticate, messageController.updateConversationMessage);
+router.delete('/conversations/:conversationId/messages/:messageId', authenticate, messageController.deleteConversationMessage);
+router.post('/conversations/:conversationId/messages/:messageId/reactions', authenticate, messageController.addConversationMessageReaction);
+router.delete('/conversations/:conversationId/messages/:messageId/reactions/:emoji', authenticate, messageController.removeConversationMessageReaction);
+
 router.get('/messages/:messageId/edits', authenticate, messageController.getMessageEdits);
 router.get('/messages/:messageId/thread', authenticate, messageController.getThread);
 router.post('/messages/:messageId/thread', authenticate, messageController.postThreadReply);

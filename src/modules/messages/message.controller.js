@@ -545,6 +545,148 @@ const resolveModerationReport = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+const getChannelMessage = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.getChannelMessage(req.params.channelId, req.params.messageId, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'messages.get_failed', 'message', req.params.messageId, error, { channelId: req.params.channelId });
+    throw error;
+  }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.viewed',
+    entityType: 'message',
+    entityId: req.params.messageId,
+    statusCode: 200,
+    metadata: { channelId: req.params.channelId },
+  });
+
+  res.status(200).json(result);
+});
+
+const updateChannelMessage = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.updateChannelMessage(req.params.channelId, req.params.messageId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.update_failed', 'message', req.params.messageId, error, { channelId: req.params.channelId });
+    throw error;
+  }
+
+  res.status(200).json(result);
+});
+
+const deleteChannelMessage = asyncHandler(async (req, res) => {
+  try {
+    await messageService.deleteChannelMessage(req.params.channelId, req.params.messageId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.delete_failed', 'message', req.params.messageId, error, { channelId: req.params.channelId });
+    throw error;
+  }
+
+  res.status(204).end();
+});
+
+const addChannelMessageReaction = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.addChannelMessageReaction(req.params.channelId, req.params.messageId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.reaction_add_failed', 'message', req.params.messageId, error, { channelId: req.params.channelId });
+    throw error;
+  }
+
+  res.status(200).json(result);
+});
+
+const removeChannelMessageReaction = asyncHandler(async (req, res) => {
+  try {
+    await messageService.removeChannelMessageReaction(req.params.channelId, req.params.messageId, req.params.emoji, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.reaction_remove_failed', 'message', req.params.messageId, error, {
+      channelId: req.params.channelId,
+      emoji: req.params.emoji,
+    });
+    throw error;
+  }
+
+  res.status(204).end();
+});
+
+const getConversationMessage = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.getConversationMessage(req.params.conversationId, req.params.messageId, req.auth.user);
+  } catch (error) {
+    await logFailure(req, 'messages.get_failed', 'message', req.params.messageId, error, { conversationId: req.params.conversationId });
+    throw error;
+  }
+
+  await auditService.logAction({
+    req,
+    userId: req.auth.user.id,
+    action: 'messages.viewed',
+    entityType: 'message',
+    entityId: req.params.messageId,
+    statusCode: 200,
+    metadata: { conversationId: req.params.conversationId },
+  });
+
+  res.status(200).json(result);
+});
+
+const updateConversationMessage = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.updateConversationMessage(req.params.conversationId, req.params.messageId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.update_failed', 'message', req.params.messageId, error, { conversationId: req.params.conversationId });
+    throw error;
+  }
+
+  res.status(200).json(result);
+});
+
+const deleteConversationMessage = asyncHandler(async (req, res) => {
+  try {
+    await messageService.deleteConversationMessage(req.params.conversationId, req.params.messageId, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.delete_failed', 'message', req.params.messageId, error, { conversationId: req.params.conversationId });
+    throw error;
+  }
+
+  res.status(204).end();
+});
+
+const addConversationMessageReaction = asyncHandler(async (req, res) => {
+  let result;
+  try {
+    result = await messageService.addConversationMessageReaction(req.params.conversationId, req.params.messageId, req.body, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.reaction_add_failed', 'message', req.params.messageId, error, { conversationId: req.params.conversationId });
+    throw error;
+  }
+
+  res.status(200).json(result);
+});
+
+const removeConversationMessageReaction = asyncHandler(async (req, res) => {
+  try {
+    await messageService.removeConversationMessageReaction(req.params.conversationId, req.params.messageId, req.params.emoji, req.auth.user, req);
+  } catch (error) {
+    await logFailure(req, 'messages.reaction_remove_failed', 'message', req.params.messageId, error, {
+      conversationId: req.params.conversationId,
+      emoji: req.params.emoji,
+    });
+    throw error;
+  }
+
+  res.status(204).end();
+});
+
 module.exports = {
   listConversations,
   getConversation,
@@ -576,4 +718,14 @@ module.exports = {
   reportMessage,
   listModerationReports,
   resolveModerationReport,
+  getChannelMessage,
+  updateChannelMessage,
+  deleteChannelMessage,
+  addChannelMessageReaction,
+  removeChannelMessageReaction,
+  getConversationMessage,
+  updateConversationMessage,
+  deleteConversationMessage,
+  addConversationMessageReaction,
+  removeConversationMessageReaction,
 };

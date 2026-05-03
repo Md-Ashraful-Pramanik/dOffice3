@@ -1461,6 +1461,64 @@ async function resolveModerationReport(orgId, reportId, body, user, req) {
   return { report: updated };
 }
 
+async function assertMessageBelongsToTarget(messageId, targetType, targetId) {
+  const message = await messageRepository.findMessageById(messageId);
+  if (!message || message.target_type !== targetType || message.target_id !== targetId) {
+    throw notFound();
+  }
+  return message;
+}
+
+async function getChannelMessage(channelId, messageId, user) {
+  await assertMessageBelongsToTarget(messageId, 'channel', channelId);
+  return getMessage(messageId, user);
+}
+
+async function updateChannelMessage(channelId, messageId, body, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'channel', channelId);
+  return updateMessage(messageId, body, user, req);
+}
+
+async function deleteChannelMessage(channelId, messageId, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'channel', channelId);
+  return deleteMessage(messageId, user, req);
+}
+
+async function addChannelMessageReaction(channelId, messageId, body, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'channel', channelId);
+  return addReaction(messageId, body, user, req);
+}
+
+async function removeChannelMessageReaction(channelId, messageId, emoji, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'channel', channelId);
+  return removeReaction(messageId, emoji, user, req);
+}
+
+async function getConversationMessage(conversationId, messageId, user) {
+  await assertMessageBelongsToTarget(messageId, 'conversation', conversationId);
+  return getMessage(messageId, user);
+}
+
+async function updateConversationMessage(conversationId, messageId, body, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'conversation', conversationId);
+  return updateMessage(messageId, body, user, req);
+}
+
+async function deleteConversationMessage(conversationId, messageId, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'conversation', conversationId);
+  return deleteMessage(messageId, user, req);
+}
+
+async function addConversationMessageReaction(conversationId, messageId, body, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'conversation', conversationId);
+  return addReaction(messageId, body, user, req);
+}
+
+async function removeConversationMessageReaction(conversationId, messageId, emoji, user, req) {
+  await assertMessageBelongsToTarget(messageId, 'conversation', conversationId);
+  return removeReaction(messageId, emoji, user, req);
+}
+
 module.exports = {
   listConversations,
   getConversation,
@@ -1492,4 +1550,14 @@ module.exports = {
   reportMessage,
   listModerationReports,
   resolveModerationReport,
+  getChannelMessage,
+  updateChannelMessage,
+  deleteChannelMessage,
+  addChannelMessageReaction,
+  removeChannelMessageReaction,
+  getConversationMessage,
+  updateConversationMessage,
+  deleteConversationMessage,
+  addConversationMessageReaction,
+  removeConversationMessageReaction,
 };
