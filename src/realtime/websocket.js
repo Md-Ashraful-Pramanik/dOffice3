@@ -263,9 +263,7 @@ async function handleMarkRead(socket, payload) {
   const message = await messageRepository.findMessageById(lastReadMessageId);
   if (!message) throw createError(404, 'Resource not found.');
 
-  if (targetType === 'channel') {
-    if (message.target_id !== targetId) throw createError(422, 'lastReadMessageId must belong to the same target.');
-  } else if (message.target_id !== targetId) {
+  if (message.target_type !== targetType || message.target_id !== targetId) {
     throw createError(422, 'lastReadMessageId must belong to the same target.');
   }
 

@@ -650,20 +650,24 @@ async function sendChannelMessage(channelId, body, user, req) {
   const ws = getWebSocket();
   if (ws) {
     realtimeRepository.listChannelMemberUserIds(channelId)
-      .then((audience) => ws.broadcastToUsers(audience, 'message:new', {
-        id: mappedMessage.id,
-        targetType: mappedMessage.targetType,
-        targetId: mappedMessage.targetId,
-        body: mappedMessage.body,
-        format: mappedMessage.format,
-        sender: mappedMessage.sender,
-        createdAt: mappedMessage.createdAt,
-        replyTo: mappedMessage.replyTo,
-        attachments: mappedMessage.attachments || [],
-        mentions: mappedMessage.mentions || [],
-        reactions: mappedMessage.reactions || [],
-        clientMsgId: mappedMessage.clientMsgId,
-      }))
+      .then((audience) => ws.broadcastToUsers(
+        audience.includes(user.id) ? audience : [...audience, user.id],
+        'message:new',
+        {
+          id: mappedMessage.id,
+          targetType: mappedMessage.targetType,
+          targetId: mappedMessage.targetId,
+          body: mappedMessage.body,
+          format: mappedMessage.format,
+          sender: mappedMessage.sender,
+          createdAt: mappedMessage.createdAt,
+          replyTo: mappedMessage.replyTo,
+          attachments: mappedMessage.attachments || [],
+          mentions: mappedMessage.mentions || [],
+          reactions: mappedMessage.reactions || [],
+          clientMsgId: mappedMessage.clientMsgId,
+        },
+      ))
       .catch(() => {});
   }
 
@@ -682,7 +686,13 @@ async function sendChannelMessage(channelId, body, user, req) {
 
 async function sendConversationMessage(conversationId, body, user, req) {
   await ensureConversationParticipant(conversationId, user.id);
+  const conversation = await messageRepository.findConversationById(conversationId);
+  if (!conversation) throw notFound();
   const payload = validateMessagePayload(body);
+
+  const expiresAt = conversation.disappearing_timer > 0
+    ? new Date(Date.now() + conversation.disappearing_timer * 1000).toISOString()
+    : null;
 
   const id = generateId('msg');
   await messageRepository.createMessage({
@@ -698,6 +708,7 @@ async function sendConversationMessage(conversationId, body, user, req) {
     mentions: payload.mentions,
     encryption: payload.encryption,
     clientMsgId: payload.clientMsgId,
+    expiresAt,
   });
 
   const row = await messageRepository.findMessageById(id);
@@ -895,6 +906,7 @@ async function postThreadReply(messageId, body, user, req) {
   });
 
   const row = await messageRepository.findMessageById(id);
+  const mappedReply = await toMessageResponse(row);
 
   if (parent.target_type === 'channel') {
     const channel = await messageRepository.findChannelById(parent.target_id);
@@ -909,6 +921,36 @@ async function postThreadReply(messageId, body, user, req) {
     }
   }
 
+  const ws = getWebSocket();
+  if (ws) {
+    const targetType = parent.target_type;
+    const targetId = parent.target_id;
+    const audiencePromise = targetType === 'channel'
+      ? realtimeRepository.listChannelMemberUserIds(targetId)
+      : realtimeRepository.listConversationParticipantUserIds(targetId);
+    audiencePromise
+      .then((audience) => {
+        const recipients = targetType === 'channel'
+          ? (audience.includes(user.id) ? audience : [...audience, user.id])
+          : audience;
+        return ws.broadcastToUsers(recipients, 'message:new', {
+          id: mappedReply.id,
+          targetType: mappedReply.targetType,
+          targetId: mappedReply.targetId,
+          body: mappedReply.body,
+          format: mappedReply.format,
+          sender: mappedReply.sender,
+          createdAt: mappedReply.createdAt,
+          replyTo: mappedReply.replyTo,
+          attachments: mappedReply.attachments || [],
+          mentions: mappedReply.mentions || [],
+          reactions: mappedReply.reactions || [],
+          clientMsgId: mappedReply.clientMsgId,
+        });
+      })
+      .catch(() => {});
+  }
+
   await auditService.logAction({
     req,
     userId: user.id,
@@ -919,7 +961,7 @@ async function postThreadReply(messageId, body, user, req) {
     metadata: { threadParentId: messageId },
   });
 
-  return { message: await toMessageResponse(row) };
+  return { message: mappedReply };
 }
 
 async function addReaction(messageId, body, user, req) {
